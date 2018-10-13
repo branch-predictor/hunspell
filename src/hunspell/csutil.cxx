@@ -88,8 +88,10 @@
 #include <unicode/uchar.h>
 #else
 #ifndef MOZILLA_CLIENT
+#ifndef _WINDOWS
 #include "utf_info.hxx"
 #define UTF_LST_LEN (sizeof(utf_lst) / (sizeof(unicode_info)))
+#endif
 #endif
 #endif
 
@@ -107,9 +109,11 @@ struct unicode_info2 {
   unsigned short clower;
 };
 
+#ifndef _WINDOWS
 static struct unicode_info2* utf_tbl = NULL;
 static int utf_tbl_count =
     0;  // utf_tbl can be used by multiple Hunspell instances
+#endif
 
 void myopen(std::ifstream& stream, const char* path, std::ios_base::openmode mode)
 {
@@ -2424,6 +2428,7 @@ int get_lang_num(const std::string& lang) {
 
 #ifndef OPENOFFICEORG
 #ifndef MOZILLA_CLIENT
+#ifndef _WINDOWS
 void initialize_utf_tbl() {
   utf_tbl_count++;
   if (utf_tbl)
@@ -2442,7 +2447,9 @@ void initialize_utf_tbl() {
 }
 #endif
 #endif
+#endif
 
+#ifndef _WINDOWS
 void free_utf_tbl() {
   if (utf_tbl_count > 0)
     utf_tbl_count--;
@@ -2451,6 +2458,7 @@ void free_utf_tbl() {
     utf_tbl = NULL;
   }
 }
+#endif
 
 unsigned short unicodetoupper(unsigned short c, int langnum) {
   // In Azeri and Turkish, I and i dictinct letters:
@@ -2464,7 +2472,11 @@ unsigned short unicodetoupper(unsigned short c, int langnum) {
 #ifdef MOZILLA_CLIENT
   return ToUpperCase((char16_t)c);
 #else
+#ifdef _WINDOWS
+  return towupper(c);
+#else
   return (utf_tbl) ? utf_tbl[c].cupper : c;
+#endif
 #endif
 #endif
 }
@@ -2481,7 +2493,11 @@ unsigned short unicodetolower(unsigned short c, int langnum) {
 #ifdef MOZILLA_CLIENT
   return ToLowerCase((char16_t)c);
 #else
+#ifdef _WINDOWS
+  return towupper(c);
+#else
   return (utf_tbl) ? utf_tbl[c].clower : c;
+#endif
 #endif
 #endif
 }
@@ -2490,7 +2506,11 @@ int unicodeisalpha(unsigned short c) {
 #ifdef OPENOFFICEORG
   return u_isalpha(c);
 #else
+#ifdef _WINDOWS
+  return iswalpha(c);
+#else
   return (utf_tbl) ? utf_tbl[c].cletter : 0;
+#endif
 #endif
 }
 

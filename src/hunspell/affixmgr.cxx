@@ -226,7 +226,9 @@ AffixMgr::~AffixMgr() {
   pHMgr = NULL;
   cpdmin = 0;
   cpdmaxsyllable = 0;
+#ifndef _WINDOWS
   free_utf_tbl();
+#endif
   checknum = 0;
 #ifdef MOZILLA_CLIENT
   delete[] csconv;
@@ -304,7 +306,9 @@ int AffixMgr::parse_file(const char* affpath, const char* key) {
         utf8 = 1;
 #ifndef OPENOFFICEORG
 #ifndef MOZILLA_CLIENT
+#ifndef _WINDOWS
         initialize_utf_tbl();
+#endif
 #endif
 #endif
       }

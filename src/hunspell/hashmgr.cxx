@@ -151,8 +151,10 @@ HashMgr::~HashMgr() {
 
 #ifndef OPENOFFICEORG
 #ifndef MOZILLA_CLIENT
+#ifndef _WINDOWS
   if (utf8)
     free_utf_tbl();
+#endif
 #endif
 #endif
 
@@ -983,7 +985,9 @@ int HashMgr::load_config(const char* affpath, const char* key) {
         utf8 = 1;
 #ifndef OPENOFFICEORG
 #ifndef MOZILLA_CLIENT
-        initialize_utf_tbl();
+#ifndef _WINDOWS
+		initialize_utf_tbl();
+#endif
 #endif
 #endif
       } else
