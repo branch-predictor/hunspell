@@ -20,6 +20,7 @@ add one or more of following if you need them:
 
 #define HUNSPELL_EXPORT_CLASS
 #define HUNSPELL_EXPORT_FUNC
+#define HUNSPELL_HZIP
 */
 
 #ifdef HUNSPELL_EXPORT_CLASS
