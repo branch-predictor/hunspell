@@ -72,10 +72,14 @@
 #ifndef FILEMGR_HXX_
 #define FILEMGR_HXX_
 
+#ifdef HUNSPELL_HZIP
 #include "hunzip.hxx"
+#endif
 #include <stdio.h>
 #include <string>
 #include <fstream>
+
+#define MSG_OPEN "error: %s: cannot open\n"
 
 class FileMgr {
  private:
@@ -84,8 +88,10 @@ class FileMgr {
 
  protected:
   std::ifstream fin;
+#ifdef HUNSPELL_HZIP
   Hunzip* hin;
   char in[BUFSIZE + 50];  // input buffer
+#endif
   int fail(const char* err, const char* par);
   int linenum;
 

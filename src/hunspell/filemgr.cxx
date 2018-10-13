@@ -80,6 +80,7 @@ int FileMgr::fail(const char* err, const char* par) {
   return -1;
 }
 
+#ifdef HUNSPELL_HZIP
 FileMgr::FileMgr(const char* file, const char* key) : hin(NULL), linenum(0) {
   in[0] = '\0';
 
@@ -93,9 +94,21 @@ FileMgr::FileMgr(const char* file, const char* key) : hin(NULL), linenum(0) {
   if (!fin.is_open() && !hin->is_open())
     fail(MSG_OPEN, file);
 }
+#else
+FileMgr::FileMgr(const char* file, const char* key) : linenum(0) {
+
+	myopen(fin, file, std::ios_base::in);
+	if (!fin.is_open()) {
+		fail(MSG_OPEN, file);
+	}
+}
+
+#endif
 
 FileMgr::~FileMgr() {
-  delete hin;
+#ifdef HUNSPELL_HZIP
+	delete hin;
+#endif
 }
 
 bool FileMgr::getline(std::string& dest) {
@@ -103,9 +116,12 @@ bool FileMgr::getline(std::string& dest) {
   ++linenum;
   if (fin.is_open()) {
     ret = static_cast<bool>(std::getline(fin, dest));
-  } else if (hin->is_open()) {
+  } 
+#ifdef HUNSPELL_HZIP
+  else if (hin->is_open()) {
     ret = hin->getline(dest);
   }
+#endif
   if (!ret) {
     --linenum;
   }

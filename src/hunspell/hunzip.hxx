@@ -50,7 +50,6 @@
 #define BUFSIZE 65536
 #define HZIP_EXTENSION ".hz"
 
-#define MSG_OPEN "error: %s: cannot open\n"
 #define MSG_FORMAT "error: %s: not in hzip format\n"
 #define MSG_MEMORY "error: %s: missing memory\n"
 #define MSG_KEY "error: %s: missing or bad password\n"
