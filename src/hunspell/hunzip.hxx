@@ -60,7 +60,7 @@ struct bit {
   int v[2];
 };
 
-class LIBHUNSPELL_DLL_EXPORTED Hunzip {
+class LIBHUNSPELL_DLL_CLASS_EXPORTED Hunzip {
  private:
   Hunzip(const Hunzip&);
   Hunzip& operator=(const Hunzip&);
