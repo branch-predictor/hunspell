@@ -51,6 +51,8 @@ typedef struct Hunhandle Hunhandle;
 
 LIBHUNSPELL_DLL_EXPORTED Hunhandle* Hunspell_create(const char* affpath,
                                                     const char* dpath);
+LIBHUNSPELL_DLL_EXPORTED Hunhandle* Hunspell_create_bdic(const unsigned char* bdicdata,
+                                                    size_t bdiclen);
 
 LIBHUNSPELL_DLL_EXPORTED Hunhandle* Hunspell_create_key(const char* affpath,
                                                         const char* dpath,
@@ -127,7 +129,6 @@ LIBHUNSPELL_DLL_EXPORTED int Hunspell_generate2(Hunhandle* pHunspell,
                                                 const char* word,
                                                 char** desc,
                                                 int n);
-
 /* functions for run-time modification of the dictionary */
 
 /* add word to the run-time dictionary */

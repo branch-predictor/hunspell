@@ -116,7 +116,7 @@ class SuggestMgr {
   int complexprefixes;
 
  public:
-  SuggestMgr(const char* tryme, unsigned int maxn, AffixMgr* aptr);
+   SuggestMgr(const char* tryme, unsigned int maxn, AffixMgr* aptr, hunspell::BDictReader* reader = nullptr);
   ~SuggestMgr();
 
   bool suggest(std::vector<std::string>& slst, const char* word, int* onlycmpdsug);
@@ -126,6 +126,8 @@ class SuggestMgr {
   std::string suggest_gen(const std::vector<std::string>& pl, const std::string& pattern);
 
  private:
+  // Not owned by us, owned by the Hunspell object.
+  hunspell::BDictReader* bdict_reader;
   void testsug(std::vector<std::string>& wlst,
                const std::string& candidate,
                int cpdsuggest,

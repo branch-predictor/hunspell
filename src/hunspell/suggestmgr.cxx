@@ -82,9 +82,96 @@ const w_char W_VLINE = {'\0', '|'};
 
 #define MAX_CHAR_DISTANCE 4
 
-SuggestMgr::SuggestMgr(const char* tryme, unsigned int maxn, AffixMgr* aptr) {
+namespace {
+  // A simple class which creates temporary hentry objects which are available
+  // only in a scope. To conceal memory operations from SuggestMgr functions,
+  // this object automatically deletes all hentry objects created through
+  // CreateScopedHashEntry() calls in its destructor. So, the following snippet
+  // raises a memory error.
+  //
+  //   hentry* bad_copy = NULL;
+  //   {
+  //     ScopedHashEntryFactory factory;
+  //     hentry* scoped_copy = factory.CreateScopedHashEntry(0, source);
+  //     ...
+  //     bad_copy = scoped_copy;
+  //   }
+  //   if (bad_copy->word[0])  // memory for scoped_copy has been deleted!
+  //
+  // As listed in the above snippet, it is simple to use this class.
+  // 1. Declare an instance of this ScopedHashEntryFactory, and;
+  // 2. Call its CreateHashEntry() member instead of using 'new hentry' or
+  //    'operator='.
+  //
+  class ScopedHashEntryFactory {
+  public:
+    ScopedHashEntryFactory();
+    ~ScopedHashEntryFactory();
+    // Creates a temporary copy of the given hentry struct.
+    // The returned copy is available only while this object is available.
+    // NOTE: this function just calls memcpy() in creating a copy of the given
+    // hentry struct, i.e. it does NOT copy objects referred by pointers of the
+    // given hentry struct.
+    hentry* CreateScopedHashEntry(int index, const hentry* source);
+  private:
+    // A struct which encapsulates the new hentry struct introduced in hunspell
+    // 1.2.8. For a pointer to an hentry struct 'h', hunspell 1.2.8 stores a word
+    // (including a NUL character) into 'h->word[0]',...,'h->word[h->blen]' even
+    // though arraysize(h->word[]) is 1. Also, it changed 'astr' to a pointer so
+    // it can store affix flags into 'h->astr[0]',...,'h->astr[alen-1]'. To handle
+    // this new hentry struct, we define a struct which combines three values: an
+    // hentry struct 'hentry'; a char array 'word[kMaxWordLen]', and; an unsigned
+    // short array 'astr' so a hentry struct 'h' returned from
+    // CreateScopedHashEntry() satisfies the following equations:
+    //   hentry* h = factory.CreateScopedHashEntry(0, source);
+    //   h->word[0] == ((HashEntryItem*)h)->entry.word[0].
+    //   h->word[1] == ((HashEntryItem*)h)->word[0].
+    //   ...
+    //   h->word[h->blen] == ((HashEntryItem*)h)->word[h->blen-1].
+    //   h->astr[0] == ((HashEntryItem*)h)->astr[0].
+    //   h->astr[1] == ((HashEntryItem*)h)->astr[1].
+    //   ...
+    //   h->astr[h->alen-1] == ((HashEntryItem*)h)->astr[h->alen-1].
+    enum {
+      kMaxWordLen = 128,
+      kMaxAffixLen = 8,
+    };
+    struct HashEntryItem {
+      hentry entry;
+      char word[kMaxWordLen];
+      unsigned short astr[kMaxAffixLen];
+    };
+    HashEntryItem hash_items_[MAX_ROOTS];
+  };
+  ScopedHashEntryFactory::ScopedHashEntryFactory() {
+    memset(&hash_items_[0], 0, sizeof(hash_items_));
+  }
+  ScopedHashEntryFactory::~ScopedHashEntryFactory() {
+  }
+  hentry* ScopedHashEntryFactory::CreateScopedHashEntry(int index,
+    const hentry* source) {
+    if (index >= MAX_ROOTS || source->blen >= kMaxWordLen)
+      return NULL;
+    // Retrieve a HashEntryItem struct from our spool, initialize it, and
+    // returns the address of its 'hentry' member.
+    size_t source_size = sizeof(hentry) + source->blen + 1;
+    HashEntryItem* hash_item = &hash_items_[index];
+    memcpy(&hash_item->entry, source, source_size);
+    if (source->astr) {
+      hash_item->entry.alen = source->alen;
+      if (hash_item->entry.alen > kMaxAffixLen)
+        hash_item->entry.alen = kMaxAffixLen;
+      memcpy(hash_item->astr, source->astr, hash_item->entry.alen * sizeof(hash_item->astr[0]));
+      hash_item->entry.astr = &hash_item->astr[0];
+    }
+    return &hash_item->entry;
+  }
+}  // namespace
+SuggestMgr::SuggestMgr(const char* tryme, unsigned int maxn, AffixMgr* aptr, hunspell::BDictReader* reader) {
   // register affix manager and check in string of chars to
   // try when building candidate suggestions
+  bdict_reader = reader;
+
   pAMgr = aptr;
 
   csconv = NULL;
@@ -455,47 +542,83 @@ int SuggestMgr::replchars(std::vector<std::string>& wlst,
   int wl = strlen(word);
   if (wl < 2 || !pAMgr)
     return wlst.size();
-  const std::vector<replentry>& reptable = pAMgr->get_reptable();
-  for (size_t i = 0; i < reptable.size(); ++i) {
-    const char* r = word;
-    // search every occurence of the pattern in the word
-    while ((r = strstr(r, reptable[i].pattern.c_str())) != NULL) {
-      int type = (r == word) ? 1 : 0;
-      if (r - word + reptable[i].pattern.size() == strlen(word))
-        type += 2;
-      while (type && reptable[i].outstrings[type].empty())
-        type = (type == 2 && r != word) ? 0 : type - 1;
-      const std::string&out = reptable[i].outstrings[type];
-      if (out.empty()) {
-        ++r;
-        continue;
-      }
-      candidate.assign(word);
-      candidate.resize(r - word);
-      candidate.append(reptable[i].outstrings[type]);
-      candidate.append(r + reptable[i].pattern.size());
-      testsug(wlst, candidate, cpdsuggest, NULL, NULL);
-      // check REP suggestions with space
-      size_t sp = candidate.find(' ');
-      if (sp != std::string::npos) {
-        size_t prev = 0;
-        while (sp != std::string::npos) {
-          std::string prev_chunk = candidate.substr(prev, sp - prev);
-          if (checkword(prev_chunk, 0, NULL, NULL)) {
-            size_t oldns = wlst.size();
-            std::string post_chunk = candidate.substr(sp + 1);
-            testsug(wlst, post_chunk, cpdsuggest, NULL, NULL);
-            if (oldns < wlst.size()) {
-              wlst[wlst.size() - 1] = candidate;
+  if (bdict_reader) {
+    const char *pattern, *pattern2;
+    hunspell::ReplacementIterator iterator = bdict_reader->GetReplacementIterator();
+    while (iterator.GetNext(&pattern, &pattern2)) {
+      const char* r = word;
+      size_t lenr = strlen(pattern2);
+      size_t lenp = strlen(pattern);
+      // search every occurence of the pattern in the word
+      while ((r = strstr(r, pattern)) != NULL) {
+        candidate = word;
+        candidate.replace(r - word, lenp, pattern2);
+        testsug(wlst, candidate, cpdsuggest, NULL, NULL);
+        // check REP suggestions with space
+        size_t sp = candidate.find(' ');
+        if (sp != std::string::npos) {
+          size_t prev = 0;
+          while (sp != std::string::npos) {
+            std::string prev_chunk = candidate.substr(prev, sp - prev);
+            if (checkword(prev_chunk, 0, NULL, NULL)) {
+              size_t oldns = wlst.size();
+              std::string post_chunk = candidate.substr(sp + 1);
+              testsug(wlst, post_chunk, cpdsuggest, NULL, NULL);
+              if (oldns < wlst.size()) {
+                wlst[wlst.size() - 1] = candidate;
+              }
             }
+            prev = sp + 1;
+            sp = candidate.find(' ', prev);
           }
-          prev = sp + 1;
-          sp = candidate.find(' ', prev);
         }
+        r++;  // search for the next letter
       }
-      r++;  // search for the next letter
+    }
+  } else {
+    const std::vector<replentry>& reptable = pAMgr->get_reptable();
+    for (size_t i = 0; i < reptable.size(); ++i) {
+      const char* r = word;
+      // search every occurence of the pattern in the word
+      while ((r = strstr(r, reptable[i].pattern.c_str())) != NULL) {
+        int type = (r == word) ? 1 : 0;
+        if (r - word + reptable[i].pattern.size() == strlen(word))
+          type += 2;
+        while (type && reptable[i].outstrings[type].empty())
+          type = (type == 2 && r != word) ? 0 : type - 1;
+        const std::string&out = reptable[i].outstrings[type];
+        if (out.empty()) {
+          ++r;
+          continue;
+        }
+        candidate.assign(word);
+        candidate.resize(r - word);
+        candidate.append(reptable[i].outstrings[type]);
+        candidate.append(r + reptable[i].pattern.size());
+        testsug(wlst, candidate, cpdsuggest, NULL, NULL);
+        // check REP suggestions with space
+        size_t sp = candidate.find(' ');
+        if (sp != std::string::npos) {
+          size_t prev = 0;
+          while (sp != std::string::npos) {
+            std::string prev_chunk = candidate.substr(prev, sp - prev);
+            if (checkword(prev_chunk, 0, NULL, NULL)) {
+              size_t oldns = wlst.size();
+              std::string post_chunk = candidate.substr(sp + 1);
+              testsug(wlst, post_chunk, cpdsuggest, NULL, NULL);
+              if (oldns < wlst.size()) {
+                wlst[wlst.size() - 1] = candidate;
+              }
+            }
+            prev = sp + 1;
+            sp = candidate.find(' ', prev);
+          }
+        }
+        r++;  // search for the next letter
+      }
     }
   }
+
   return wlst.size();
 }
 
@@ -1131,6 +1254,7 @@ void SuggestMgr::ngsuggest(std::vector<std::string>& wlst,
 
   struct hentry* hp = NULL;
   int col = -1;
+  ScopedHashEntryFactory hash_entry_factory;
   phonetable* ph = (pAMgr) ? pAMgr->get_phonetable() : NULL;
   std::string target;
   std::string candidate;
@@ -1257,7 +1381,11 @@ void SuggestMgr::ngsuggest(std::vector<std::string>& wlst,
 
       if (sc > scores[lp]) {
         scores[lp] = sc;
-        roots[lp] = hp;
+        if (bdict_reader) {
+          roots[lp] = hash_entry_factory.CreateScopedHashEntry(lp, hp);
+        } else {
+          roots[lp] = hp;
+        }
         lval = sc;
         for (int j = 0; j < MAX_ROOTS; j++)
           if (scores[j] < lval) {
@@ -2197,8 +2325,8 @@ void SuggestMgr::lcs(const char* s,
     m = strlen(s);
     n = strlen(s2);
   }
-  c = (char*)malloc((m + 1) * (n + 1));
-  b = (char*)malloc((m + 1) * (n + 1));
+  c = (char *) calloc(m + 1, n + 1);
+  b = (char *) calloc(m + 1, n + 1);
   if (!c || !b) {
     if (c)
       free(c);
@@ -2207,10 +2335,6 @@ void SuggestMgr::lcs(const char* s,
     *result = NULL;
     return;
   }
-  for (i = 1; i <= m; i++)
-    c[i * (n + 1)] = 0;
-  for (j = 0; j <= n; j++)
-    c[j] = 0;
   for (i = 1; i <= m; i++) {
     for (j = 1; j <= n; j++) {
       if (((utf8) && (su[i - 1] == su2[j - 1])) ||

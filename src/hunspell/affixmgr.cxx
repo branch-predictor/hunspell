@@ -87,10 +87,11 @@
 
 AffixMgr::AffixMgr(const char* affpath,
                    const std::vector<HashMgr*>& ptr,
-                   const char* key)
+                   const char* key, 
+                   hunspell::BDictReader* reader)
   : alldic(ptr)
   , pHMgr(ptr[0]) {
-
+  bdict_reader = reader;
   // register hash manager and load affix data from aff file
   csconv = NULL;
   utf8 = 0;
@@ -156,6 +157,7 @@ AffixMgr::AffixMgr(const char* affpath,
   sfx = NULL;
   pfx = NULL;
 
+  // todo: memset
   for (int i = 0; i < SETSIZE; i++) {
     pStart[i] = NULL;
     sStart[i] = NULL;
@@ -163,13 +165,18 @@ AffixMgr::AffixMgr(const char* affpath,
     sFlag[i] = NULL;
   }
 
-  for (int j = 0; j < CONTSIZE; j++) {
-    contclasses[j] = 0;
+  if (bdict_reader) {
+    parse_file(nullptr, nullptr);
+  } else {
+    for (int j = 0; j < CONTSIZE; j++) {
+      contclasses[j] = 0;
+    }
+
+    if (parse_file(affpath, key)) {
+      HUNSPELL_WARNING(stderr, "Failure loading aff file %s\n", affpath);
+    }
   }
 
-  if (parse_file(affpath, key)) {
-    HUNSPELL_WARNING(stderr, "Failure loading aff file %s\n", affpath);
-  }
 
   if (cpdmin == -1)
     cpdmin = MINCPDLEN;
@@ -226,7 +233,7 @@ AffixMgr::~AffixMgr() {
   pHMgr = NULL;
   cpdmin = 0;
   cpdmaxsyllable = 0;
-#ifndef _WINDOWS
+#ifndef _WINDOWS_UTF
   free_utf_tbl();
 #endif
   checknum = 0;
@@ -246,6 +253,8 @@ void AffixMgr::finishFileMgr(FileMgr* afflst) {
 // read in aff file and build up prefix and suffix entry objects
 int AffixMgr::parse_file(const char* affpath, const char* key) {
 
+  FileMgr * afflst;
+
   // checking flag duplication
   char dupflags[CONTSIZE];
   char dupflags_ini = 1;
@@ -253,12 +262,52 @@ int AffixMgr::parse_file(const char* affpath, const char* key) {
   // first line indicator for removing byte order mark
   int firstline = 1;
 
-  // open the affix file
-  FileMgr* afflst = new FileMgr(affpath, key);
-  if (!afflst) {
-    HUNSPELL_WARNING(
+  if (bdict_reader) {
+    std::string line;
+    // open the affix file
+    // We're always UTF-8
+    utf8 = 1;
+
+    // A BDICT file stores PFX and SFX lines in a special section and it provides
+    // a special line iterator for reading PFX and SFX lines.
+    // We create a FileMgr object from this iterator and parse PFX and SFX lines
+    // before parsing other lines.
+    hunspell::LineIterator affix_iterator = bdict_reader->GetAffixLineIterator();
+    FileMgr* iterator = new FileMgr(nullptr, nullptr, &affix_iterator);
+    if (!iterator) {
+      HUNSPELL_WARNING(stderr,
+        "error: could not create a FileMgr from an affix line iterator.\n");
+      return 1;
+    }
+
+    while (iterator->getline(line)) {
+      char ft = ' ';
+      if (line.compare(0, 3, "PFX") == 0) ft = complexprefixes ? 'S' : 'P';
+      if (line.compare(0, 3, "SFX") == 0) ft = complexprefixes ? 'P' : 'S';
+      if (ft != ' ')
+        parse_affix(line, ft, iterator, NULL);
+    }
+    delete iterator;
+
+    // Create a FileMgr object for reading lines except PFX and SFX lines.
+    // We don't need to change the loop below since our FileMgr emulates the
+    // original one.
+    hunspell::LineIterator other_iterator = bdict_reader->GetOtherLineIterator();
+    afflst = new FileMgr(nullptr, nullptr, &other_iterator);
+    if (!afflst) {
+      HUNSPELL_WARNING(stderr,
+        "error: could not create a FileMgr from an other line iterator.\n");
+      return 1;
+    }
+  } else {
+
+    // open the affix file
+    afflst = new FileMgr(affpath, key);
+    if (!afflst) {
+      HUNSPELL_WARNING(
         stderr, "error: could not open affix description file %s\n", affpath);
-    return 1;
+      return 1;
+    }
   }
 
   // step one is to parse the affix file building up the internal
@@ -270,16 +319,19 @@ int AffixMgr::parse_file(const char* affpath, const char* key) {
   while (afflst->getline(line)) {
     mychomp(line);
 
-    /* remove byte order mark */
-    if (firstline) {
-      firstline = 0;
-      // Affix file begins with byte order mark: possible incompatibility with
-      // old Hunspell versions
-      if (line.compare(0, 3, "\xEF\xBB\xBF", 3) == 0) {
-        line.erase(0, 3);
+    if (!bdict_reader) {
+      /* remove byte order mark */
+      if (firstline) {
+        firstline = 0;
+        // Affix file begins with byte order mark: possible incompatibility with
+        // old Hunspell versions
+        if (line.compare(0, 3, "\xEF\xBB\xBF", 3) == 0) {
+          line.erase(0, 3);
+        }
       }
     }
 
+    // TODO: make it go to nextline once any of compares is positive
     /* parse in the keyboard string */
     if (line.compare(0, 3, "KEY", 3) == 0) {
       if (!parse_string(line, keystring, afflst->getlinenum())) {
@@ -306,7 +358,7 @@ int AffixMgr::parse_file(const char* affpath, const char* key) {
         utf8 = 1;
 #ifndef OPENOFFICEORG
 #ifndef MOZILLA_CLIENT
-#ifndef _WINDOWS
+#ifndef _WINDOWS_UTF
         initialize_utf_tbl();
 #endif
 #endif
@@ -681,21 +733,23 @@ int AffixMgr::parse_file(const char* affpath, const char* key) {
       checksharps = 1;
     }
 
-    /* parse this affix: P - prefix, S - suffix */
-    // affix type
-    char ft = ' ';
-    if (line.compare(0, 3, "PFX", 3) == 0)
-      ft = complexprefixes ? 'S' : 'P';
-    if (line.compare(0, 3, "SFX", 3) == 0)
-      ft = complexprefixes ? 'P' : 'S';
-    if (ft != ' ') {
-      if (dupflags_ini) {
-        memset(dupflags, 0, sizeof(dupflags));
-        dupflags_ini = 0;
-      }
-      if (!parse_affix(line, ft, afflst, dupflags)) {
-        finishFileMgr(afflst);
-        return 1;
+    if (!bdict_reader) {
+      /* parse this affix: P - prefix, S - suffix */
+      // affix type
+      char ft = ' ';
+      if (line.compare(0, 3, "PFX", 3) == 0)
+        ft = complexprefixes ? 'S' : 'P';
+      if (line.compare(0, 3, "SFX", 3) == 0)
+        ft = complexprefixes ? 'P' : 'S';
+      if (ft != ' ') {
+        if (dupflags_ini) {
+          memset(dupflags, 0, sizeof(dupflags));
+          dupflags_ini = 0;
+        }
+        if (!parse_affix(line, ft, afflst, dupflags)) {
+          finishFileMgr(afflst);
+          return 1;
+        }
       }
     }
   }
@@ -1273,26 +1327,42 @@ std::string AffixMgr::prefix_check_twosfx_morph(const char* word,
 
 // Is word a non-compound with a REP substitution (see checkcompoundrep)?
 int AffixMgr::cpdrep_check(const char* word, int wl) {
-
-  if ((wl < 2) || get_reptable().empty())
-    return 0;
-
-  for (size_t i = 0; i < get_reptable().size(); ++i) {
-    // use only available mid patterns
-    if (!get_reptable()[i].outstrings[0].empty()) {
+  if (bdict_reader) {
+    const char *pattern, *pattern2;
+    hunspell::ReplacementIterator iterator = bdict_reader->GetReplacementIterator();
+    while (iterator.GetNext(&pattern, &pattern2)) {
       const char* r = word;
-      const size_t lenp = get_reptable()[i].pattern.size();
+      const size_t lenr = strlen(pattern2);
+      const size_t lenp = strlen(pattern);
       // search every occurence of the pattern in the word
-      while ((r = strstr(r, get_reptable()[i].pattern.c_str())) != NULL) {
+      while ((r = strstr(r, pattern)) != NULL) {
         std::string candidate(word);
-        candidate.replace(r - word, lenp, get_reptable()[i].outstrings[0]);
-        if (candidate_check(candidate.c_str(), candidate.size()))
+        candidate.replace(r - word, lenp, pattern2);
+        if (candidate_check(candidate.c_str(), candidate.size())) 
           return 1;
-        ++r;  // search for the next letter
+        r++; // search for the next letter
+      }
+    }
+  } else {
+    if ((wl < 2) || get_reptable().empty())
+      return 0;
+
+    for (size_t i = 0; i < get_reptable().size(); ++i) {
+      // use only available mid patterns
+      if (!get_reptable()[i].outstrings[0].empty()) {
+        const char* r = word;
+        const size_t lenp = get_reptable()[i].pattern.size();
+        // search every occurence of the pattern in the word
+        while ((r = strstr(r, get_reptable()[i].pattern.c_str())) != NULL) {
+          std::string candidate(word);
+          candidate.replace(r - word, lenp, get_reptable()[i].outstrings[0]);
+          if (candidate_check(candidate.c_str(), candidate.size()))
+            return 1;
+          ++r;  // search for the next letter
+        }
       }
     }
   }
-
  return 0;
 }
 
@@ -4461,15 +4531,17 @@ bool AffixMgr::parse_affix(const std::string& line,
       case 1: {
         np++;
         aflag = pHMgr->decode_flag(std::string(start_piece, iter).c_str());
-        if (((at == 'S') && (dupflags[aflag] & dupSFX)) ||
+        if (!bdict_reader) {
+          if (((at == 'S') && (dupflags[aflag] & dupSFX)) ||
             ((at == 'P') && (dupflags[aflag] & dupPFX))) {
-          HUNSPELL_WARNING(
+            HUNSPELL_WARNING(
               stderr,
               "error: line %d: multiple definitions of an affix flag\n",
               af->getlinenum());
+          }
+          dupflags[aflag] += (char)((at == 'S') ? dupSFX : dupPFX);
         }
-        dupflags[aflag] += (char)((at == 'S') ? dupSFX : dupPFX);
-        break;
+          break;
       }
       // piece 3 - is cross product indicator
       case 2: {

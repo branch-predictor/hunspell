@@ -74,6 +74,8 @@
 
 #ifdef HUNSPELL_HZIP
 #include "hunzip.hxx"
+#else
+#define BUFSIZE 65536
 #endif
 #include <stdio.h>
 #include <string>
@@ -81,13 +83,18 @@
 
 #define MSG_OPEN "error: %s: cannot open\n"
 
+namespace hunspell {
+  class LineIterator;
+}
 class FileMgr {
  private:
-  FileMgr(const FileMgr&);
-  FileMgr& operator=(const FileMgr&);
+   FileMgr(const FileMgr&);
+   FileMgr& operator=(const FileMgr&);
 
  protected:
   std::ifstream fin;
+  hunspell::LineIterator* iterator_;
+  char line_[BUFSIZE + 50]; // input buffer
 #ifdef HUNSPELL_HZIP
   Hunzip* hin;
   char in[BUFSIZE + 50];  // input buffer
@@ -96,8 +103,8 @@ class FileMgr {
   int linenum;
 
  public:
-  FileMgr(const char* filename, const char* key = NULL);
-  ~FileMgr();
+   FileMgr(const char* filename, const char* key = NULL, hunspell::LineIterator* iterator = NULL);
+   ~FileMgr();
   bool getline(std::string&);
   int getlinenum();
 };

@@ -74,6 +74,7 @@
 
 #include "filemgr.hxx"
 #include "csutil.hxx"
+#include "..\google\bdict_reader.h"
 
 int FileMgr::fail(const char* err, const char* par) {
   fprintf(stderr, err, par);
@@ -95,12 +96,14 @@ FileMgr::FileMgr(const char* file, const char* key) : hin(NULL), linenum(0) {
     fail(MSG_OPEN, file);
 }
 #else
-FileMgr::FileMgr(const char* file, const char* key) : linenum(0) {
-
-	myopen(fin, file, std::ios_base::in);
-	if (!fin.is_open()) {
-		fail(MSG_OPEN, file);
-	}
+FileMgr::FileMgr(const char* file, const char* key, hunspell::LineIterator* iterator) 
+                : linenum(0), iterator_(iterator) {
+  if (!iterator && file) {
+    myopen(fin, file, std::ios_base::in);
+    if (!fin.is_open()) {
+      fail(MSG_OPEN, file);
+    }
+  }
 }
 
 #endif
@@ -113,17 +116,25 @@ FileMgr::~FileMgr() {
 
 bool FileMgr::getline(std::string& dest) {
   bool ret = false;
-  ++linenum;
-  if (fin.is_open()) {
-    ret = static_cast<bool>(std::getline(fin, dest));
-  } 
+  if (iterator_) {
+    // Read one line from a BDICT file and return it, if we can read a line
+    // without errors.
+    ret = iterator_->AdvanceAndCopy(line_, BUFSIZE - 1);
+    if (ret)
+      dest = line_;
+  } else {
+    ++linenum;
+    if (fin.is_open()) {
+      ret = static_cast<bool>(std::getline(fin, dest));
+    }
 #ifdef HUNSPELL_HZIP
-  else if (hin->is_open()) {
-    ret = hin->getline(dest);
-  }
+    else if (hin->is_open()) {
+      ret = hin->getline(dest);
+    }
 #endif
-  if (!ret) {
-    --linenum;
+    if (!ret) {
+      --linenum;
+    }
   }
   return ret;
 }

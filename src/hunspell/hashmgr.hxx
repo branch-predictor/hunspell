@@ -79,6 +79,9 @@
 #include "filemgr.hxx"
 #include "w_char.hxx"
 
+#include <map>
+#include "..\google\bdict_reader.h"
+
 enum flag { FLAG_CHAR, FLAG_LONG, FLAG_NUM, FLAG_UNI };
 
 // morphological description of a dictionary item can contain
@@ -88,6 +91,10 @@ enum flag { FLAG_CHAR, FLAG_LONG, FLAG_NUM, FLAG_UNI };
 #define MORPH_PHON_RATIO 500
 
 class HashMgr {
+  // Not owned by this class, owned by the Hunspell object.
+  hunspell::BDictReader* bdict_reader;
+  std::map<std::string, int> custom_word_to_affix_id_map_;
+  std::vector<std::string*> pointer_to_strings_;
   int tablesize;
   struct hentry** tableptr;
   flag flag_mode;
@@ -111,7 +118,19 @@ class HashMgr {
   std::vector<replentry> reptable;
 
  public:
-  HashMgr(const char* tpath, const char* apath, const char* key = NULL);
+   HashMgr(const char* tpath, const char* apath, const char* key = NULL, hunspell::BDictReader* reader = NULL);
+   // Return the hentry corresponding to the given word. Returns NULL if the
+   // word is not there in the cache.
+   hentry* GetHentryFromHEntryCache(char* word);
+   
+   // Called before we do a new operation. This will empty the cache of pointers
+   // to hentries that we have cached. In Chrome, we make these on-demand, but
+   // they must live as long as the single spellcheck operation that they're part
+   // of since Hunspell will save pointers to various ones as it works.
+   //
+   // This function allows that cache to be emptied and not grow infinitely.
+   void EmptyHentryCache();
+
   ~HashMgr();
 
   struct hentry* lookup(const char*) const;
@@ -135,6 +154,7 @@ class HashMgr {
   int get_clen_and_captype(const std::string& word, int* captype);
   int get_clen_and_captype(const std::string& word, int* captype, std::vector<w_char> &workbuf);
   int load_tables(const char* tpath, const char* key);
+  int load_config_internal(FileMgr* afflst);
   int add_word(const std::string& word,
                int wcl,
                unsigned short* ap,
@@ -144,6 +164,38 @@ class HashMgr {
                int captype);
   int load_config(const char* affpath, const char* key);
   bool parse_aliasf(const std::string& line, FileMgr* af);
+
+  // Loads the AF lines from a BDICT.
+  // A BDICT file compresses its AF lines to save memory.
+  // This function decompresses each AF line and call parse_aliasf().
+  int LoadAFLines();
+
+  // Helper functions that create a new hentry struct, initialize it, and
+  // delete it.
+  // These functions encapsulate non-trivial operations in creating and
+  // initializing a hentry struct from BDICT data to avoid changing code so much
+  // even when a hentry struct is changed.
+  hentry* InitHashEntry(hentry* entry,
+    size_t item_size,
+    const char* word,
+    int word_length,
+    int affix_index) const;
+  hentry* CreateHashEntry(const char* word,
+    int word_length,
+    int affix_index) const;
+  void DeleteHashEntry(hentry* entry) const;
+
+  // Converts the list of affix IDs to a linked list of hentry structures. The
+  // hentry structures will point to the given word. The returned pointer will
+  // be a statically allocated variable that will change for the next call. The
+  // |word| buffer must be the same.
+  hentry* AffixIDsToHentry(char* word, int* affix_ids, int affix_count) const;
+
+  // See EmptyHentryCache above. Note that each one is actually a linked list
+  // followed by the homonym pointer.
+  typedef std::map<std::string, hentry*> HEntryCache;
+  HEntryCache hentry_cache;
+
   int add_hidden_capitalized_word(const std::string& word,
                                   int wcl,
                                   unsigned short* flags,

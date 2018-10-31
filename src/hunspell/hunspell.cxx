@@ -87,7 +87,7 @@
 class HunspellImpl
 {
 public:
-  HunspellImpl(const char* affpath, const char* dpath, const char* key = NULL);
+  HunspellImpl(const char* affpath, const char* dpath, const char* key = NULL, const unsigned char* bdict_data = NULL, size_t bdict_length = NULL);
   ~HunspellImpl();
   int add_dic(const char* dpath, const char* key = NULL);
   std::vector<std::string> suffix_suggest(const std::string& root_word);
@@ -135,6 +135,9 @@ private:
   int complexprefixes;
   std::vector<std::string> wordbreak;
 
+  // Not owned by us, owned by the Hunspell object.
+  hunspell::BDictReader* bdict_reader;
+
 private:
   std::vector<std::string> analyze_internal(const std::string& word);
   bool spell_internal(const std::string& word, int* info = NULL, std::string* root = NULL);
@@ -169,19 +172,30 @@ private:
   HunspellImpl& operator=(const HunspellImpl&);
 };
 
-HunspellImpl::HunspellImpl(const char* affpath, const char* dpath, const char* key) {
+HunspellImpl::HunspellImpl(const char* affpath, const char* dpath, const char* key, const unsigned char* bdict_data, size_t bdict_length) {
   csconv = NULL;
   utf8 = 0;
   complexprefixes = 0;
-  affixpath = mystrdup(affpath);
+  if (bdict_data) {
+    bdict_reader = new hunspell::BDictReader;
+    bdict_reader->Init(bdict_data, bdict_length);
+    /* first set up the hash manager */
+    m_HMgrs.push_back(new HashMgr(nullptr, nullptr, nullptr, bdict_reader));
+    pAMgr = new AffixMgr(nullptr, m_HMgrs, nullptr, bdict_reader); // TODO: 'key' ?
+    affixpath = nullptr;
+  } else {
+    bdict_reader = nullptr;
+    affixpath = mystrdup(affpath);
 
-  /* first set up the hash manager */
-  m_HMgrs.push_back(new HashMgr(dpath, affpath, key));
+    /* first set up the hash manager */
+    m_HMgrs.push_back(new HashMgr(dpath, affpath, key));
 
-  /* next set up the affix manager */
-  /* it needs access to the hash manager lookup methods */
-  pAMgr = new AffixMgr(affpath, m_HMgrs, key);
+    /* next set up the affix manager */
+    /* it needs access to the hash manager lookup methods */
+    pAMgr = new AffixMgr(affpath, m_HMgrs, key);
+  }
 
+ 
   /* get the preferred try string and the dictionary */
   /* encoding from the Affix Manager for that dictionary */
   char* try_string = pAMgr->get_try_string();
@@ -194,7 +208,7 @@ HunspellImpl::HunspellImpl(const char* affpath, const char* dpath, const char* k
   wordbreak = pAMgr->get_breaktable();
 
   /* and finally set up the suggestion manager */
-  pSMgr = new SuggestMgr(try_string, MAXSUGGESTION, pAMgr);
+  pSMgr = new SuggestMgr(try_string, MAXSUGGESTION, pAMgr, bdict_reader);
   if (try_string)
     free(try_string);
 }
@@ -210,6 +224,9 @@ HunspellImpl::~HunspellImpl() {
   delete[] csconv;
 #endif
   csconv = NULL;
+  if (bdict_reader) 
+    delete bdict_reader;
+  bdict_reader = NULL;
   if (affixpath)
     free(affixpath);
   affixpath = NULL;
@@ -435,6 +452,9 @@ void HunspellImpl::insert_sug(std::vector<std::string>& slst, const std::string&
 }
 
 bool HunspellImpl::spell(const std::string& word, int* info, std::string* root) {
+  if (m_HMgrs[0]) 
+    m_HMgrs[0]->EmptyHentryCache();
+
   bool r = spell_internal(word, info, root);
   if (r && root) {
     // output conversion
@@ -785,6 +805,11 @@ struct hentry* HunspellImpl::checkword(const std::string& w, int* info, std::str
   if (!len)
     return NULL;
 
+  // We need to check if the word length is valid to make coverity (Event
+  // fixed_size_dest: Possible overrun of N byte fixed size buffer) happy.
+  if ((utf8 && strlen(word) >= MAXWORDUTF8LEN) || (!utf8 && strlen(word) >= MAXWORDLEN))
+    return NULL;
+
   // word reversing wrapper for complex prefixes
   if (complexprefixes) {
     if (!usebuffer) {
@@ -896,6 +921,9 @@ std::vector<std::string> HunspellImpl::suggest(const std::string& word) {
   bool capwords;
   size_t abbv;
   int captype;
+  if (m_HMgrs[0])
+    m_HMgrs[0]->EmptyHentryCache();
+
   std::vector<std::string> slst = suggest_internal(word, capwords, abbv, captype);
   // word reversing wrapper for complex prefixes
   if (complexprefixes) {
@@ -1967,6 +1995,8 @@ void HunspellImpl::free_list(char*** slst, int n) {
 }
 
 char* HunspellImpl::get_dic_encoding() {
+  if (utf8)
+    return "UTF-8";
   return &encoding[0];
 }
 
@@ -2021,8 +2051,8 @@ int HunspellImpl::input_conv(const char* word, char* dest, size_t destsize) {
   return 0;
 }
 
-Hunspell::Hunspell(const char* affpath, const char* dpath, const char* key)
-  : m_Impl(new HunspellImpl(affpath, dpath, key)) {
+Hunspell::Hunspell(const char* affpath, const char* dpath, const char* key, const unsigned char* bdict_data, size_t bdict_length)
+  : m_Impl(new HunspellImpl(affpath, dpath, key, bdict_data, bdict_length)) {
 }
 
 Hunspell::~Hunspell() {
@@ -2160,6 +2190,10 @@ int Hunspell::input_conv(const char* word, char* dest, size_t destsize) {
 
 Hunhandle* Hunspell_create(const char* affpath, const char* dpath) {
   return reinterpret_cast<Hunhandle*>(new HunspellImpl(affpath, dpath));
+}
+
+Hunhandle* Hunspell_create_bdic(const unsigned char* bdicdata, size_t bdiclen) {
+  return reinterpret_cast<Hunhandle*>(new HunspellImpl(nullptr, nullptr, nullptr, bdicdata, bdiclen));
 }
 
 Hunhandle* Hunspell_create_key(const char* affpath,
