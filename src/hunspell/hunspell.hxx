@@ -79,9 +79,7 @@
 #include <string>
 #include <vector>
 
-#ifdef HUNSPELL_CHROME_CLIENT
-#include "third_party/hunspell/google/bdict_reader.h"
-#endif
+#include "..\google\bdict_reader.h"
 
 #define SPELL_XML "<?xml?>"
 
@@ -119,17 +117,11 @@ class LIBHUNSPELL_DLL_EXPORTED Hunspell {
    * long path names (without the long path prefix Hunspell will use fopen()
    * with system-dependent character encoding instead of _wfopen()).
    */
-#ifdef HUNSPELL_CHROME_CLIENT
-  Hunspell(const unsigned char* bdict_data, size_t bdict_length);
-#else
-  Hunspell(const char* affpath, const char* dpath, const char* key = NULL);
-#endif
+   Hunspell(const char* affpath, const char* dpath, const char* key = NULL, const unsigned char* bdict_data = NULL, size_t bdict_length = 0);
   ~Hunspell();
 
-#ifndef HUNSPELL_CHROME_CLIENT
   /* load extra dictionaries (only dic files) */
   int add_dic(const char* dpath, const char* key = NULL);
-#endif
 
   /* spell(word) - spellcheck word
    * output: false = bad word, true = good word

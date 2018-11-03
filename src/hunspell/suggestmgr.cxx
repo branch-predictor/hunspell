@@ -82,7 +82,6 @@
 
 const w_char W_VLINE = {'\0', '|'};
 
-#ifdef HUNSPELL_CHROME_CLIENT
 namespace {
 // A simple class which creates temporary hentry objects which are available
 // only in a scope. To conceal memory operations from SuggestMgr functions,
@@ -176,18 +175,9 @@ hentry* ScopedHashEntryFactory::CreateScopedHashEntry(int index,
 }
 
 }  // namespace
-#endif
 
-
-#ifdef HUNSPELL_CHROME_CLIENT
-SuggestMgr::SuggestMgr(hunspell::BDictReader* reader,
-                       const char * tryme, int maxn, 
-                       AffixMgr * aptr)
-{
+SuggestMgr::SuggestMgr(const char* tryme, unsigned int maxn, AffixMgr* aptr, hunspell::BDictReader* reader) {
   bdict_reader = reader;
-#else
-SuggestMgr::SuggestMgr(const char* tryme, unsigned int maxn, AffixMgr* aptr) {
-#endif
   // register affix manager and check in string of chars to
   // try when building candidate suggestions
   pAMgr = aptr;
@@ -508,47 +498,70 @@ int SuggestMgr::map_related(const char* word,
 // suggestions for a typical fault of spelling, that
 // differs with more, than 1 letter from the right form.
 int SuggestMgr::replchars(std::vector<std::string>& wlst,
-                          const char* word,
-                          int cpdsuggest) {
+  const char* word,
+  int cpdsuggest) {
   std::string candidate;
   int wl = strlen(word);
   if (wl < 2 || !pAMgr)
     return wlst.size();
 
-// TODO: wrong, 'ns' doesn't exist any more
-#ifdef HUNSPELL_CHROME_CLIENT
-  const char *pattern, *pattern2;
-  hunspell::ReplacementIterator iterator = bdict_reader->GetReplacementIterator();
-  while (iterator.GetNext(&pattern, &pattern2)) {
-    const char* r = word;
-    size_t lenr = strlen(pattern2);
-    size_t lenp = strlen(pattern);
+  // TODO: wrong, 'ns' doesn't exist any more
+  if (bdict_reader) {
+    const char *pattern, *pattern2;
+    hunspell::ReplacementIterator iterator = bdict_reader->GetReplacementIterator();
+    while (iterator.GetNext(&pattern, &pattern2)) {
+      const char* r = word;
+      size_t lenr = strlen(pattern2);
+      size_t lenp = strlen(pattern);
 
-    // search every occurence of the pattern in the word
-    while ((r=strstr(r, pattern)) != NULL) {
-      candidate = word;
-      candidate.replace(r-word, lenp, pattern2);
-#else
-  const std::vector<replentry>& reptable = pAMgr->get_reptable();
-  for (size_t i = 0; i < reptable.size(); ++i) {
-    const char* r = word;
-    // search every occurence of the pattern in the word
-    while ((r = strstr(r, reptable[i].pattern.c_str())) != NULL) {
-      int type = (r == word) ? 1 : 0;
-      if (r - word + reptable[i].pattern.size() == strlen(word))
-        type += 2;
-      while (type && reptable[i].outstrings[type].empty())
-        type = (type == 2 && r != word) ? 0 : type - 1;
-      const std::string&out = reptable[i].outstrings[type];
-      if (out.empty()) {
-        ++r;
-        continue;
+      // search every occurence of the pattern in the word
+      while ((r = strstr(r, pattern)) != NULL) {
+        candidate = word;
+        candidate.replace(r - word, lenp, pattern2);
+        testsug(wlst, candidate, cpdsuggest, NULL, NULL);
+        // check REP suggestions with space
+        size_t sp = candidate.find(' ');
+        if (sp != std::string::npos) {
+          size_t prev = 0;
+          while (sp != std::string::npos) {
+            std::string prev_chunk = candidate.substr(prev, sp - prev);
+            if (checkword(prev_chunk, 0, NULL, NULL)) {
+              size_t oldns = wlst.size();
+              std::string post_chunk = candidate.substr(sp + 1);
+              testsug(wlst, post_chunk, cpdsuggest, NULL, NULL);
+              if (oldns < wlst.size()) {
+                wlst[wlst.size() - 1] = candidate;
+              }
+            }
+            prev = sp + 1;
+            sp = candidate.find(' ', prev);
+          }
+        }
+        r++;  // search for the next letter
       }
-      candidate.assign(word);
-      candidate.resize(r - word);
-      candidate.append(reptable[i].outstrings[type]);
-      candidate.append(r + reptable[i].pattern.size());
-#endif
+    }
+    return wlst.size();
+  } else {
+    const std::vector<replentry>& reptable = pAMgr->get_reptable();
+    for (size_t i = 0; i < reptable.size(); ++i) {
+      const char* r = word;
+      // search every occurence of the pattern in the word
+      while ((r = strstr(r, reptable[i].pattern.c_str())) != NULL) {
+        int type = (r == word) ? 1 : 0;
+        if (r - word + reptable[i].pattern.size() == strlen(word))
+          type += 2;
+        while (type && reptable[i].outstrings[type].empty())
+          type = (type == 2 && r != word) ? 0 : type - 1;
+        const std::string&out = reptable[i].outstrings[type];
+        if (out.empty()) {
+          ++r;
+          continue;
+        }
+        candidate.assign(word);
+        candidate.resize(r - word);
+        candidate.append(reptable[i].outstrings[type]);
+        candidate.append(r + reptable[i].pattern.size());
+      }
       testsug(wlst, candidate, cpdsuggest, NULL, NULL);
       // check REP suggestions with space
       size_t sp = candidate.find(' ');
@@ -1168,9 +1181,7 @@ void SuggestMgr::ngsuggest(std::vector<std::string>& wlst,
 
   struct hentry* hp = NULL;
   int col = -1;
-#ifdef HUNSPELL_CHROME_CLIENT
   ScopedHashEntryFactory hash_entry_factory;
-#endif
   phonetable* ph = (pAMgr) ? pAMgr->get_phonetable() : NULL;
   std::string target;
   std::string candidate;
@@ -1267,11 +1278,11 @@ void SuggestMgr::ngsuggest(std::vector<std::string>& wlst,
 
       if (sc > scores[lp]) {
         scores[lp] = sc;
-#ifdef HUNSPELL_CHROME_CLIENT
-        roots[lp] = hash_entry_factory.CreateScopedHashEntry(lp, hp);
-#else
-        roots[lp] = hp;
-#endif
+        if (bdict_reader){
+          roots[lp] = hash_entry_factory.CreateScopedHashEntry(lp, hp);
+        } else {
+          roots[lp] = hp;
+        }
         lval = sc;
         for (int j = 0; j < MAX_ROOTS; j++)
           if (scores[j] < lval) {

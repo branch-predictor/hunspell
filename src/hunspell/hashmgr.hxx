@@ -82,23 +82,16 @@
 #include "filemgr.hxx"
 #include "w_char.hxx"
 
-#ifdef HUNSPELL_CHROME_CLIENT
 #include <map>
 
-#include "base/stl_util.h"
-#include "base/strings/string_piece.h"
-#include "third_party/hunspell/google/bdict_reader.h"
-#endif
+#include "..\google\bdict_reader.h"
 
 enum flag { FLAG_CHAR, FLAG_LONG, FLAG_NUM, FLAG_UNI };
 
 class HashMgr {
-#ifdef HUNSPELL_CHROME_CLIENT
   // Not owned by this class, owned by the Hunspell object.
-  hunspell::BDictReader* bdict_reader;
-  std::map<base::StringPiece, int> custom_word_to_affix_id_map_;
+  std::map<std::string, int> custom_word_to_affix_id_map_;
   std::vector<std::string*> pointer_to_strings_;
-#endif
   int tablesize;
   struct hentry** tableptr;
   flag flag_mode;
@@ -116,11 +109,10 @@ class HashMgr {
   unsigned short* aliasflen;
   int numaliasm;  // morphological desciption `compression' with aliases
   char** aliasm;
+  hunspell::BDictReader* bdict_reader;
 
  public:
-#ifdef HUNSPELL_CHROME_CLIENT
-  HashMgr(hunspell::BDictReader* reader);
-
+  
   // Return the hentry corresponding to the given word. Returns NULL if the
   // word is not there in the cache.
   hentry* GetHentryFromHEntryCache(char* word);
@@ -132,9 +124,7 @@ class HashMgr {
   //
   // This function allows that cache to be emptied and not grow infinitely.
   void EmptyHentryCache();
-#else
-  HashMgr(const char* tpath, const char* apath, const char* key = NULL);
-#endif
+  HashMgr(const char* tpath, const char* apath, const char* key = NULL, hunspell::BDictReader* reader = NULL);
   ~HashMgr();
 
   struct hentry* lookup(const char*) const;
@@ -165,7 +155,6 @@ class HashMgr {
   int load_config(const char* affpath, const char* key);
   bool parse_aliasf(const std::string& line, FileMgr* af);
 
-#ifdef HUNSPELL_CHROME_CLIENT
   // Loads the AF lines from a BDICT.
   // A BDICT file compresses its AF lines to save memory.
   // This function decompresses each AF line and call parse_aliasf().
@@ -196,7 +185,6 @@ class HashMgr {
   // followed by the homonym pointer.
   typedef std::map<std::string, hentry*> HEntryCache;
   HEntryCache hentry_cache;
-#endif
 
   int add_hidden_capitalized_word(const std::string& word,
                                   int wcl,

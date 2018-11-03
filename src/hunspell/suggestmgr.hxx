@@ -124,11 +124,7 @@ class SuggestMgr {
   int complexprefixes;
 
  public:
-#ifdef HUNSPELL_CHROME_CLIENT
-  SuggestMgr(hunspell::BDictReader* reader, const char * tryme, int maxn, AffixMgr *aptr);
-#else
-  SuggestMgr(const char* tryme, unsigned int maxn, AffixMgr* aptr);
-#endif
+   SuggestMgr(const char* tryme, unsigned int maxn, AffixMgr* aptr, hunspell::BDictReader* reader = nullptr);
   ~SuggestMgr();
 
   void suggest(std::vector<std::string>& slst, const char* word, int* onlycmpdsug);
@@ -138,10 +134,8 @@ class SuggestMgr {
   std::string suggest_gen(const std::vector<std::string>& pl, const std::string& pattern);
 
  private:
-#ifdef HUNSPELL_CHROME_CLIENT
    // Not owned by us, owned by the Hunspell object.
    hunspell::BDictReader* bdict_reader;
-#endif
   void testsug(std::vector<std::string>& wlst,
                const std::string& candidate,
                int cpdsuggest,

@@ -205,7 +205,7 @@ class AffixMgr {
   int fullstrip;
 
   int havecontclass;           // boolean variable
-  ContClasses         contclasses;
+  ContClasses         bcontclasses;
   char contclasses[CONTSIZE];  // flags of possible continuing classes (twofold
                                // affix)
 
@@ -384,7 +384,7 @@ class AffixMgr {
   bool parse_checkcpdtable(const std::string& line, FileMgr* af);
   bool parse_defcpdtable(const std::string& line, FileMgr* af);
   bool parse_affix(const std::string& line, const char at, FileMgr* af, char* dupflags);
-
+  int AffixMgr::parse_file_internal(FileMgr* afflst);
   void reverse_condition(std::string&);
   std::string& debugflag(std::string& result, unsigned short flag);
   int condlen(const char*);

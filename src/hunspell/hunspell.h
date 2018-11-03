@@ -50,7 +50,9 @@ extern "C" {
 typedef struct Hunhandle Hunhandle;
 
 LIBHUNSPELL_DLL_EXPORTED Hunhandle* Hunspell_create(const char* affpath,
-                                                    const char* dpath);
+  const char* dpath);
+
+LIBHUNSPELL_DLL_EXPORTED Hunhandle* Hunspell_create_bdic(const unsigned char* data, size_t datalen);
 
 LIBHUNSPELL_DLL_EXPORTED Hunhandle* Hunspell_create_key(const char* affpath,
                                                         const char* dpath,

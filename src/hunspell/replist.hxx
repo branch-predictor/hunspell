@@ -75,12 +75,6 @@
 #ifndef REPLIST_HXX_
 #define REPLIST_HXX_
 
-#ifdef HUNSPELL_CHROME_CLIENT
-// Compilation issues in spellchecker.cc think near is a macro, therefore
-// removing it here solves that problem.
-#undef near
-#endif
-
 #include "w_char.hxx"
 
 #include <string>

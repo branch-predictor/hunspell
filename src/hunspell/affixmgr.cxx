@@ -90,8 +90,7 @@
 AffixMgr::AffixMgr(const char* affpath,
                    const std::vector<HashMgr*>& ptr,
                    const char* key,
-                   hunspell::BDictReader* reader,
-                   const std::vector<HashMgr*>& ptr)
+                   hunspell::BDictReader* reader)
   : alldic(ptr)
   , pHMgr(ptr[0]) {
   bdict_reader = reader;
@@ -253,61 +252,13 @@ void AffixMgr::finishFileMgr(FileMgr* afflst) {
   process_sfx_tree_to_list();
 }
 
-// read in aff file and build up prefix and suffix entry objects
-int AffixMgr::parse_file(const char* affpath, const char* key) {
+int AffixMgr::parse_file_internal(FileMgr* afflst) {
   std::string line;
-  if (!affpath && !key) {}
-  // open the affix file
-  // We're always UTF-8
-  utf8 = 1;
-
-  // A BDICT file stores PFX and SFX lines in a special section and it provides
-  // a special line iterator for reading PFX and SFX lines.
-  // We create a FileMgr object from this iterator and parse PFX and SFX lines
-  // before parsing other lines.
-  hunspell::LineIterator affix_iterator = bdict_reader->GetAffixLineIterator();
-  FileMgr* iterator = new FileMgr(&affix_iterator);
-  if (!iterator) {
-    HUNSPELL_WARNING(stderr,
-      "error: could not create a FileMgr from an affix line iterator.\n");
-    return 1;
-  }
-
-  while (iterator->getline(line)) {
-    char ft = ' ';
-    if (line.compare(0, 3, "PFX") == 0) ft = complexprefixes ? 'S' : 'P';
-    if (line.compare(0, 3, "SFX") == 0) ft = complexprefixes ? 'P' : 'S';
-    if (ft != ' ')
-      parse_affix(line, ft, iterator, NULL);
-  }
-  delete iterator;
-
-  // Create a FileMgr object for reading lines except PFX and SFX lines.
-  // We don't need to change the loop below since our FileMgr emulates the
-  // original one.
-  hunspell::LineIterator other_iterator = bdict_reader->GetOtherLineIterator();
-  FileMgr * afflst = new FileMgr(&other_iterator);
-  if (!afflst) {
-    HUNSPELL_WARNING(stderr,
-      "error: could not create a FileMgr from an other line iterator.\n");
-    return 1;
-  }
-} else {
-  // checking flag duplication
   char dupflags[CONTSIZE];
   char dupflags_ini = 1;
 
   // first line indicator for removing byte order mark
   int firstline = 1;
-
-  // open the affix file
-  FileMgr* afflst = new FileMgr(affpath, key, NULL);
-  if (!afflst) {
-    HUNSPELL_WARNING(
-      stderr, "error: could not open affix description file %s\n", affpath);
-    return 1;
-  }
-}
 
   // step one is to parse the affix file building up the internal
   // affix data structures
@@ -362,7 +313,7 @@ int AffixMgr::parse_file(const char* affpath, const char* key) {
     }
 
     /* parse COMPLEXPREFIXES for agglutinative languages with right-to-left
-     * writing system */
+    * writing system */
     if (line.compare(0, 15, "COMPLEXPREFIXES", 15) == 0)
       complexprefixes = 1;
 
@@ -564,17 +515,17 @@ int AffixMgr::parse_file(const char* affpath, const char* key) {
     /* parse in the extra word characters */
     if (line.compare(0, 9, "WORDCHARS", 9) == 0) {
       if (!parse_array(line, wordchars, wordchars_utf16,
-                       utf8, afflst->getlinenum())) {
+        utf8, afflst->getlinenum())) {
         finishFileMgr(afflst);
         return 1;
       }
     }
 
     /* parse in the ignored characters (for example, Arabic optional diacretics
-     * charachters */
+    * charachters */
     if (line.compare(0, 6, "IGNORE", 6) == 0) {
       if (!parse_array(line, ignorechars, ignorechars_utf16,
-                       utf8, afflst->getlinenum())) {
+        utf8, afflst->getlinenum())) {
         finishFileMgr(afflst);
         return 1;
       }
@@ -658,7 +609,7 @@ int AffixMgr::parse_file(const char* affpath, const char* key) {
     if (line.compare(0, 7, "VERSION", 7) == 0) {
       size_t startpos = line.find_first_not_of(" \t", 7);
       if (startpos != std::string::npos) {
-          version = line.substr(startpos);
+        version = line.substr(startpos);
       }
     }
 
@@ -796,7 +747,7 @@ int AffixMgr::parse_file(const char* affpath, const char* key) {
     csconv = get_current_cs(get_encoding());
     for (int i = 0; i <= 255; i++) {
       if ((csconv[i].cupper != csconv[i].clower) &&
-          (wordchars.find((char)i) == std::string::npos)) {
+        (wordchars.find((char)i) == std::string::npos)) {
         wordchars.push_back((char)i);
       }
     }
@@ -811,6 +762,60 @@ int AffixMgr::parse_file(const char* affpath, const char* key) {
     parsedbreaktable = true;
   }
   return 0;
+}
+
+// read in aff file and build up prefix and suffix entry objects
+int AffixMgr::parse_file(const char* affpath, const char* key) {
+  if (!affpath && !key) {
+    // open the affix file
+    // We're always UTF-8
+    utf8 = 1;
+
+    // A BDICT file stores PFX and SFX lines in a special section and it provides
+    // a special line iterator for reading PFX and SFX lines.
+    // We create a FileMgr object from this iterator and parse PFX and SFX lines
+    // before parsing other lines.
+    hunspell::LineIterator affix_iterator = bdict_reader->GetAffixLineIterator();
+    FileMgr* iterator = new FileMgr(nullptr, nullptr, &affix_iterator);
+    if (!iterator) {
+      HUNSPELL_WARNING(stderr,
+        "error: could not create a FileMgr from an affix line iterator.\n");
+      return 1;
+    }
+
+    std::string line;
+    while (iterator->getline(line)) {
+      char ft = ' ';
+      if (line.compare(0, 3, "PFX") == 0) ft = complexprefixes ? 'S' : 'P';
+      if (line.compare(0, 3, "SFX") == 0) ft = complexprefixes ? 'P' : 'S';
+      if (ft != ' ')
+        parse_affix(line, ft, iterator, NULL);
+    }
+    delete iterator;
+
+    // Create a FileMgr object for reading lines except PFX and SFX lines.
+    // We don't need to change the loop below since our FileMgr emulates the
+    // original one.
+    hunspell::LineIterator other_iterator = bdict_reader->GetOtherLineIterator();
+    FileMgr * afflst = new FileMgr(nullptr, nullptr, &other_iterator);
+    if (!afflst) {
+      HUNSPELL_WARNING(stderr,
+        "error: could not create a FileMgr from an other line iterator.\n");
+      return 1;
+    }
+    return parse_file_internal(afflst);
+  } else {
+    // checking flag duplication
+    // open the affix file
+    FileMgr* afflst = new FileMgr(affpath, key, NULL);
+    if (!afflst) {
+      HUNSPELL_WARNING(
+        stderr, "error: could not open affix description file %s\n", affpath);
+      return 1;
+    }
+    return parse_file_internal(afflst);
+  }
+
 }
 
 // we want to be able to quickly access prefix information
@@ -3525,8 +3530,11 @@ const std::vector<std::string>& AffixMgr::get_breaktable() const {
 
 // return text encoding of dictionary
 const std::string& AffixMgr::get_encoding() {
-  if (encoding.empty())
-    encoding = SPELL_ENCODING;
+  if (encoding.empty()) {
+    if (utf8)
+      encoding = "UTF-8";
+    else encoding = SPELL_ENCODING;
+  }
   return encoding;
 }
 

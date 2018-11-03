@@ -78,25 +78,27 @@
 #include "filemgr.hxx"
 #include "csutil.hxx"
 
-#include "..\..\google\bdict_reader.h"
+#include "..\google\bdict_reader.h"
 
 int FileMgr::fail(const char* err, const char* par) {
   fprintf(stderr, err, par);
   return -1;
 }
 
-FileMgr::FileMgr(const char* file, const char* key, hunspell::LineIterator* iterator) : hin(NULL), linenum(0), iterator_(iterator)) {
-  in[0] = '\0';
+FileMgr::FileMgr(const char* file, const char* key, hunspell::LineIterator* iterator) : hin(NULL), linenum(0), iterator_(iterator) {
+  if (!iterator && file) {
+    in[0] = '\0';
 
-  myopen(fin, file, std::ios_base::in);
-  if (!fin.is_open()) {
-    // check hzipped file
-    std::string st(file);
-    st.append(HZIP_EXTENSION);
-    hin = new Hunzip(st.c_str(), key);
+    myopen(fin, file, std::ios_base::in);
+    if (!fin.is_open()) {
+      // check hzipped file
+      std::string st(file);
+      st.append(HZIP_EXTENSION);
+      hin = new Hunzip(st.c_str(), key);
+    }
+    if (!fin.is_open() && !hin->is_open())
+      fail(MSG_OPEN, file);
   }
-  if (!fin.is_open() && !hin->is_open())
-    fail(MSG_OPEN, file);
 }
 
 FileMgr::~FileMgr() {
@@ -104,12 +106,12 @@ FileMgr::~FileMgr() {
 }
 
 bool FileMgr::getline(std::string& dest) {
-  if (iterator) {
+  if (iterator_) {
     // Read one line from a BDICT file and return it, if we can read a line
     // without errors.
     bool result = iterator_->AdvanceAndCopy(line_, BUFSIZE - 1);
     if (result)
-      line = line_;
+      dest = line_;
     return result;
   } else {
     bool ret = false;
@@ -127,7 +129,7 @@ bool FileMgr::getline(std::string& dest) {
 }
 
 int FileMgr::getlinenum() {
-  if (iterator) {
+  if (iterator_) {
     // This function is used only for displaying a line number that causes a
     // parser error. For a BDICT file, providing a line number doesn't help
     // identifying the place where causes a parser error so much since it is a
@@ -137,4 +139,3 @@ int FileMgr::getlinenum() {
     return linenum;
   }
 }
-#endif
