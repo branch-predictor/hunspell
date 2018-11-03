@@ -1,8 +1,6 @@
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
- * Copyright (C) 2002-2017 Németh László
- *
  * The contents of this file are subject to the Mozilla Public License Version
  * 1.1 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -13,7 +11,12 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * Hunspell is based on MySpell which is Copyright (C) 2002 Kevin Hendricks.
+ * The Original Code is Hunspell, based on MySpell.
+ *
+ * The Initial Developers of the Original Code are
+ * Kevin Hendricks (MySpell) and Németh László (Hunspell).
+ * Portions created by the Initial Developers are Copyright (C) 2002-2005
+ * the Initial Developers. All Rights Reserved.
  *
  * Contributor(s): David Einstein, Davide Prina, Giuseppe Modugno,
  * Gianluca Turconi, Simon Brouwer, Noll János, Bíró Árpád,
@@ -75,13 +78,14 @@
 #include "filemgr.hxx"
 #include "csutil.hxx"
 
+#include "..\..\google\bdict_reader.h"
+
 int FileMgr::fail(const char* err, const char* par) {
   fprintf(stderr, err, par);
   return -1;
 }
 
-#ifdef HUNSPELL_HZIP
-FileMgr::FileMgr(const char* file, const char* key) : hin(NULL), linenum(0) {
+FileMgr::FileMgr(const char* file, const char* key, hunspell::LineIterator* iterator) : hin(NULL), linenum(0), iterator_(iterator)) {
   in[0] = '\0';
 
   myopen(fin, file, std::ios_base::in);
@@ -94,40 +98,43 @@ FileMgr::FileMgr(const char* file, const char* key) : hin(NULL), linenum(0) {
   if (!fin.is_open() && !hin->is_open())
     fail(MSG_OPEN, file);
 }
-#else
-FileMgr::FileMgr(const char* file, const char* key) : linenum(0) {
-
-	myopen(fin, file, std::ios_base::in);
-	if (!fin.is_open()) {
-		fail(MSG_OPEN, file);
-	}
-}
-
-#endif
 
 FileMgr::~FileMgr() {
-#ifdef HUNSPELL_HZIP
-	delete hin;
-#endif
+  delete hin;
 }
 
 bool FileMgr::getline(std::string& dest) {
-  bool ret = false;
-  ++linenum;
-  if (fin.is_open()) {
-    ret = static_cast<bool>(std::getline(fin, dest));
-  } 
-#ifdef HUNSPELL_HZIP
-  else if (hin->is_open()) {
-    ret = hin->getline(dest);
+  if (iterator) {
+    // Read one line from a BDICT file and return it, if we can read a line
+    // without errors.
+    bool result = iterator_->AdvanceAndCopy(line_, BUFSIZE - 1);
+    if (result)
+      line = line_;
+    return result;
+  } else {
+    bool ret = false;
+    ++linenum;
+    if (fin.is_open()) {
+      ret = static_cast<bool>(std::getline(fin, dest));
+    } else if (hin->is_open()) {
+      ret = hin->getline(dest);
+    }
+    if (!ret) {
+      --linenum;
+    }
+    return ret;
   }
-#endif
-  if (!ret) {
-    --linenum;
-  }
-  return ret;
 }
 
 int FileMgr::getlinenum() {
-  return linenum;
+  if (iterator) {
+    // This function is used only for displaying a line number that causes a
+    // parser error. For a BDICT file, providing a line number doesn't help
+    // identifying the place where causes a parser error so much since it is a
+    // binary file. So, we just return 0.
+    return 0;
+  } else {
+    return linenum;
+  }
 }
+#endif

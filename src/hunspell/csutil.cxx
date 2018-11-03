@@ -1,8 +1,6 @@
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
- * Copyright (C) 2002-2017 Németh László
- *
  * The contents of this file are subject to the Mozilla Public License Version
  * 1.1 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -13,7 +11,12 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * Hunspell is based on MySpell which is Copyright (C) 2002 Kevin Hendricks.
+ * The Original Code is Hunspell, based on MySpell.
+ *
+ * The Initial Developers of the Original Code are
+ * Kevin Hendricks (MySpell) and Németh László (Hunspell).
+ * Portions created by the Initial Developers are Copyright (C) 2002-2005
+ * the Initial Developers. All Rights Reserved.
  *
  * Contributor(s): David Einstein, Davide Prina, Giuseppe Modugno,
  * Gianluca Turconi, Simon Brouwer, Noll János, Bíró Árpád,
@@ -79,6 +82,13 @@
 #include "atypes.hxx"
 #include "langnum.hxx"
 
+// Unicode character encoding information
+struct unicode_info {
+  unsigned short c;
+  unsigned short cupper;
+  unsigned short clower;
+};
+
 #ifdef _WIN32
 #include <windows.h>
 #include <wchar.h>
@@ -88,19 +98,19 @@
 #include <unicode/uchar.h>
 #else
 #ifndef MOZILLA_CLIENT
-#ifndef _WINDOWS
-#include "utf_info.hxx"
+#include "utf_info.cxx"
 #define UTF_LST_LEN (sizeof(utf_lst) / (sizeof(unicode_info)))
-#endif
 #endif
 #endif
 
 #ifdef MOZILLA_CLIENT
 #include "nsCOMPtr.h"
+#include "nsIUnicodeEncoder.h"
+#include "nsIUnicodeDecoder.h"
 #include "nsUnicharUtils.h"
-#include "mozilla/Encoding.h"
+#include "mozilla/dom/EncodingUtils.h"
 
-using namespace mozilla;
+using mozilla::dom::EncodingUtils;
 #endif
 
 struct unicode_info2 {
@@ -109,11 +119,9 @@ struct unicode_info2 {
   unsigned short clower;
 };
 
-#ifndef _WINDOWS
 static struct unicode_info2* utf_tbl = NULL;
 static int utf_tbl_count =
     0;  // utf_tbl can be used by multiple Hunspell instances
-#endif
 
 void myopen(std::ifstream& stream, const char* path, std::ios_base::openmode mode)
 {
@@ -510,20 +518,18 @@ unsigned char ccase(const struct cs_info* csconv, int nIndex) {
 
 w_char upper_utf(w_char u, int langnum) {
   unsigned short idx = (u.h << 8) + u.l;
-  unsigned short upridx = unicodetoupper(idx, langnum);
-  if (idx != upridx) {
-    u.h = (unsigned char)(upridx >> 8);
-    u.l = (unsigned char)(upridx & 0x00FF);
+  if (idx != unicodetoupper(idx, langnum)) {
+    u.h = (unsigned char)(unicodetoupper(idx, langnum) >> 8);
+    u.l = (unsigned char)(unicodetoupper(idx, langnum) & 0x00FF);
   }
   return u;
 }
 
 w_char lower_utf(w_char u, int langnum) {
   unsigned short idx = (u.h << 8) + u.l;
-  unsigned short lwridx = unicodetolower(idx, langnum);
-  if (idx != lwridx) {
-    u.h = (unsigned char)(lwridx >> 8);
-    u.l = (unsigned char)(lwridx & 0x00FF);
+  if (idx != unicodetolower(idx, langnum)) {
+    u.h = (unsigned char)(unicodetolower(idx, langnum) >> 8);
+    u.l = (unsigned char)(unicodetolower(idx, langnum) & 0x00FF);
   }
   return u;
 }
@@ -545,13 +551,12 @@ std::string& mkallsmall(std::string& s, const struct cs_info* csconv) {
 }
 
 std::vector<w_char>& mkallsmall_utf(std::vector<w_char>& u,
-                                          int langnum) {
+                                    int langnum) {
   for (size_t i = 0; i < u.size(); ++i) {
     unsigned short idx = (u[i].h << 8) + u[i].l;
-    unsigned short lwridx = unicodetolower(idx, langnum);
-    if (idx != lwridx) {
-      u[i].h = (unsigned char)(lwridx >> 8);
-      u[i].l = (unsigned char)(lwridx & 0x00FF);
+    if (idx != unicodetolower(idx, langnum)) {
+      u[i].h = (unsigned char)(unicodetolower(idx, langnum) >> 8);
+      u[i].l = (unsigned char)(unicodetolower(idx, langnum) & 0x00FF);
     }
   }
   return u;
@@ -560,10 +565,9 @@ std::vector<w_char>& mkallsmall_utf(std::vector<w_char>& u,
 std::vector<w_char>& mkallcap_utf(std::vector<w_char>& u, int langnum) {
   for (size_t i = 0; i < u.size(); i++) {
     unsigned short idx = (u[i].h << 8) + u[i].l;
-    unsigned short upridx = unicodetoupper(idx, langnum);
-    if (idx != upridx) {
-      u[i].h = (unsigned char)(upridx >> 8);
-      u[i].l = (unsigned char)(upridx & 0x00FF);
+    if (idx != unicodetoupper(idx, langnum)) {
+      u[i].h = (unsigned char)(unicodetoupper(idx, langnum) >> 8);
+      u[i].l = (unsigned char)(unicodetoupper(idx, langnum) & 0x00FF);
     }
   }
   return u;
@@ -579,10 +583,9 @@ std::string& mkinitcap(std::string& s, const struct cs_info* csconv) {
 std::vector<w_char>& mkinitcap_utf(std::vector<w_char>& u, int langnum) {
   if (!u.empty()) {
     unsigned short idx = (u[0].h << 8) + u[0].l;
-    unsigned short upridx = unicodetoupper(idx, langnum);
-    if (idx != upridx) {
-      u[0].h = (unsigned char)(upridx >> 8);
-      u[0].l = (unsigned char)(upridx & 0x00FF);
+    if (idx != unicodetoupper(idx, langnum)) {
+      u[0].h = (unsigned char)(unicodetoupper(idx, langnum) >> 8);
+      u[0].l = (unsigned char)(unicodetoupper(idx, langnum) & 0x00FF);
     }
   }
   return u;
@@ -598,10 +601,9 @@ std::string& mkinitsmall(std::string& s, const struct cs_info* csconv) {
 std::vector<w_char>& mkinitsmall_utf(std::vector<w_char>& u, int langnum) {
   if (!u.empty()) {
     unsigned short idx = (u[0].h << 8) + u[0].l;
-    unsigned short lwridx = unicodetolower(idx, langnum);
-    if (idx != lwridx) {
-      u[0].h = (unsigned char)(lwridx >> 8);
-      u[0].l = (unsigned char)(lwridx & 0x00FF);
+    if (idx != unicodetolower(idx, langnum)) {
+      u[0].h = (unsigned char)(unicodetolower(idx, langnum) >> 8);
+      u[0].l = (unsigned char)(unicodetolower(idx, langnum) & 0x00FF);
     }
   }
   return u;
@@ -2301,12 +2303,20 @@ struct cs_info* get_current_cs(const std::string& es) {
     ccs[i].cupper = i;
   }
 
-  auto encoding = Encoding::ForLabelNoReplacement(es);
-  if (!encoding) {
+  nsCOMPtr<nsIUnicodeEncoder> encoder;
+  nsCOMPtr<nsIUnicodeDecoder> decoder;
+
+  nsresult rv;
+
+  nsAutoCString label(es.c_str());
+  nsAutoCString encoding;
+  if (!EncodingUtils::FindEncodingForLabelNoReplacement(label, encoding)) {
     return ccs;
   }
-  auto encoder = encoding->NewEncoder();
-  auto decoder = encoding->NewDecoderWithoutBOMHandling();
+  encoder = EncodingUtils::EncoderForEncoding(encoding);
+  decoder = EncodingUtils::DecoderForEncoding(encoding);
+  encoder->SetOutputErrorBehavior(encoder->kOnError_Signal, nullptr, '?');
+  decoder->SetInputErrorBehavior(decoder->kOnError_Signal);
 
   for (unsigned int i = 0; i <= 0xff; ++i) {
     bool success = false;
@@ -2314,49 +2324,35 @@ struct cs_info* get_current_cs(const std::string& es) {
     // in this 1-byte character encoding.  Call our encoding/decoding
     // APIs separately for each byte since they may reject some of the
     // bytes, and we want to handle errors separately for each byte.
-    uint8_t lower, upper;
+    char lower, upper;
     do {
       if (i == 0)
         break;
-      uint8_t source = uint8_t(i);
-      char16_t uni[2];
-      char16_t uniCased;
-      uint8_t destination[4];
-      auto src1 = MakeSpan(&source, 1);
-      auto dst1 = MakeSpan(uni);
-      auto src2 = MakeSpan(&uniCased, 1);
-      auto dst2 = MakeSpan(destination);
+      const char source = char(i);
+      char16_t uni, uniCased;
+      int32_t charLength = 1, uniLength = 1;
 
-      uint32_t result;
-      size_t read;
-      size_t written;
-      Tie(result, read, written) =
-        decoder->DecodeToUTF16WithoutReplacement(src1, dst1, true);
-      if (result != kInputEmpty || read != 1 || written != 1) {
+      rv = decoder->Convert(&source, &charLength, &uni, &uniLength);
+      // Explicitly check NS_OK because we don't want to allow
+      // NS_OK_UDEC_MOREOUTPUT or NS_OK_UDEC_MOREINPUT.
+      if (rv != NS_OK || charLength != 1 || uniLength != 1)
         break;
-      }
+      uniCased = ToLowerCase(uni);
+      rv = encoder->Convert(&uniCased, &uniLength, &lower, &charLength);
+      // Explicitly check NS_OK because we don't want to allow
+      // NS_OK_UDEC_MOREOUTPUT or NS_OK_UDEC_MOREINPUT.
+      if (rv != NS_OK || charLength != 1 || uniLength != 1)
+        break;
 
-      uniCased = ToLowerCase(uni[0]);
-      Tie(result, read, written) =
-        encoder->EncodeFromUTF16WithoutReplacement(src2, dst2, true);
-      if (result != kInputEmpty || read != 1 || written != 1) {
+      uniCased = ToUpperCase(uni);
+      rv = encoder->Convert(&uniCased, &uniLength, &upper, &charLength);
+      // Explicitly check NS_OK because we don't want to allow
+      // NS_OK_UDEC_MOREOUTPUT or NS_OK_UDEC_MOREINPUT.
+      if (rv != NS_OK || charLength != 1 || uniLength != 1)
         break;
-      }
-      lower = destination[0];
-
-      uniCased = ToUpperCase(uni[0]);
-      Tie(result, read, written) =
-        encoder->EncodeFromUTF16WithoutReplacement(src2, dst2, true);
-      if (result != kInputEmpty || read != 1 || written != 1) {
-        break;
-      }
-      upper = destination[0];
 
       success = true;
     } while (0);
-
-    encoding->NewEncoderInto(*encoder);
-    encoding->NewDecoderWithoutBOMHandlingInto(*decoder);
 
     if (success) {
       ccs[i].cupper = upper;
@@ -2402,7 +2398,6 @@ static struct lang_map lang2enc[] =
     {{"ar", LANG_ar},    {"az", LANG_az},
      {"az_AZ", LANG_az},  // for back-compatibility
      {"bg", LANG_bg},    {"ca", LANG_ca},
-     {"crh", LANG_crh},
      {"cs", LANG_cs},    {"da", LANG_da},
      {"de", LANG_de},    {"el", LANG_el},
      {"en", LANG_en},    {"es", LANG_es},
@@ -2428,7 +2423,6 @@ int get_lang_num(const std::string& lang) {
 
 #ifndef OPENOFFICEORG
 #ifndef MOZILLA_CLIENT
-#ifndef _WINDOWS
 void initialize_utf_tbl() {
   utf_tbl_count++;
   if (utf_tbl)
@@ -2447,9 +2441,7 @@ void initialize_utf_tbl() {
 }
 #endif
 #endif
-#endif
 
-#ifndef _WINDOWS
 void free_utf_tbl() {
   if (utf_tbl_count > 0)
     utf_tbl_count--;
@@ -2458,13 +2450,12 @@ void free_utf_tbl() {
     utf_tbl = NULL;
   }
 }
-#endif
 
 unsigned short unicodetoupper(unsigned short c, int langnum) {
   // In Azeri and Turkish, I and i dictinct letters:
   // There are a dotless lower case i pair of upper `I',
   // and an upper I with dot pair of lower `i'.
-  if (c == 0x0069 && ((langnum == LANG_az) || (langnum == LANG_tr) || (langnum == LANG_crh)))
+  if (c == 0x0069 && ((langnum == LANG_az) || (langnum == LANG_tr)))
     return 0x0130;
 #ifdef OPENOFFICEORG
   return static_cast<unsigned short>(u_toupper(c));
@@ -2472,11 +2463,7 @@ unsigned short unicodetoupper(unsigned short c, int langnum) {
 #ifdef MOZILLA_CLIENT
   return ToUpperCase((char16_t)c);
 #else
-#ifdef _WINDOWS
-  return towupper(c);
-#else
   return (utf_tbl) ? utf_tbl[c].cupper : c;
-#endif
 #endif
 #endif
 }
@@ -2485,7 +2472,7 @@ unsigned short unicodetolower(unsigned short c, int langnum) {
   // In Azeri and Turkish, I and i dictinct letters:
   // There are a dotless lower case i pair of upper `I',
   // and an upper I with dot pair of lower `i'.
-  if (c == 0x0049 && ((langnum == LANG_az) || (langnum == LANG_tr) || (langnum == LANG_crh)))
+  if (c == 0x0049 && ((langnum == LANG_az) || (langnum == LANG_tr)))
     return 0x0131;
 #ifdef OPENOFFICEORG
   return static_cast<unsigned short>(u_tolower(c));
@@ -2493,11 +2480,7 @@ unsigned short unicodetolower(unsigned short c, int langnum) {
 #ifdef MOZILLA_CLIENT
   return ToLowerCase((char16_t)c);
 #else
-#ifdef _WINDOWS
-  return towupper(c);
-#else
   return (utf_tbl) ? utf_tbl[c].clower : c;
-#endif
 #endif
 #endif
 }
@@ -2506,11 +2489,7 @@ int unicodeisalpha(unsigned short c) {
 #ifdef OPENOFFICEORG
   return u_isalpha(c);
 #else
-#ifdef _WINDOWS
-  return iswalpha(c);
-#else
   return (utf_tbl) ? utf_tbl[c].cletter : 0;
-#endif
 #endif
 }
 
@@ -2552,17 +2531,12 @@ int get_captype_utf8(const std::vector<w_char>& word, int langnum) {
   size_t ncap = 0;
   size_t nneutral = 0;
   size_t firstcap = 0;
-
-  std::vector<w_char>::const_iterator it = word.begin();
-  std::vector<w_char>::const_iterator it_end = word.end();
-  while (it != it_end) {
-    unsigned short idx = (it->h << 8) + it->l;
-    unsigned short lwridx = unicodetolower(idx, langnum);
-    if (idx != lwridx)
+  for (size_t i = 0; i < word.size(); ++i) {
+    unsigned short idx = (word[i].h << 8) + word[i].l;
+    if (idx != unicodetolower(idx, langnum))
       ncap++;
-    if (unicodetoupper(idx, langnum) == lwridx)
+    if (unicodetoupper(idx, langnum) == unicodetolower(idx, langnum))
       nneutral++;
-    ++it;
   }
   if (ncap) {
     unsigned short idx = (word[0].h << 8) + word[0].l;

@@ -1,8 +1,6 @@
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
- * Copyright (C) 2002-2017 Németh László
- *
  * The contents of this file are subject to the Mozilla Public License Version
  * 1.1 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -13,7 +11,12 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * Hunspell is based on MySpell which is Copyright (C) 2002 Kevin Hendricks.
+ * The Original Code is Hunspell, based on MySpell.
+ *
+ * The Initial Developers of the Original Code are
+ * Kevin Hendricks (MySpell) and Németh László (Hunspell).
+ * Portions created by the Initial Developers are Copyright (C) 2002-2005
+ * the Initial Developers. All Rights Reserved.
  *
  * Contributor(s): David Einstein, Davide Prina, Giuseppe Modugno,
  * Gianluca Turconi, Simon Brouwer, Noll János, Bíró Árpád,
@@ -38,28 +41,31 @@
 #ifndef HTYPES_HXX_
 #define HTYPES_HXX_
 
+#ifdef HUNSPELL_CHROME_CLIENT
+// This is a workaround for preventing errors in parsing Turkish BDICs, which
+// contain very long AF lines (~ 12,000 chars).
+// TODO(hbono) change the HashMgr::parse_aliasf() function to be able to parse
+// longer lines than MAXDELEN.
+#define MAXDELEN    (8192 * 2)
+#else
+#define MAXDELEN    8192
+#endif  // HUNSPELL_CHROME_CLIENT
+
 #define ROTATE_LEN 5
 
 #define ROTATE(v, q) \
   (v) = ((v) << (q)) | (((v) >> (32 - q)) & ((1 << (q)) - 1));
 
 // hentry options
-#define H_OPT (1 << 0)          // is there optional morphological data?
-#define H_OPT_ALIASM (1 << 1)   // using alias compression?
-#define H_OPT_PHON (1 << 2)     // is there ph: field in the morphological data?
-#define H_OPT_INITCAP (1 << 3)  // is dictionary word capitalized?
+#define H_OPT (1 << 0)
+#define H_OPT_ALIASM (1 << 1)
+#define H_OPT_PHON (1 << 2)
 
 // see also csutil.hxx
 #define HENTRY_WORD(h) &(h->word[0])
 
 // approx. number  of user defined words
 #define USERWORD 1000
-
-#if __cplusplus >= 201103L || (defined(_MSC_VER) && _MSC_VER >= 1900)
-#  define HUNSPELL_THREAD_LOCAL thread_local
-#else
-#  define HUNSPELL_THREAD_LOCAL static
-#endif
 
 struct hentry {
   unsigned char blen;    // word length in bytes
@@ -68,7 +74,7 @@ struct hentry {
   unsigned short* astr;  // affix flag vector
   struct hentry* next;   // next word with same hash code
   struct hentry* next_homonym;  // next homonym word (with same hash code)
-  char var;      // bit vector of H_OPT hentry options
+  char var;      // variable fields (only for special pronounciation yet)
   char word[1];  // variable-length word (8-bit or UTF-8 encoding)
 };
 
