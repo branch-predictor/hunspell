@@ -2492,7 +2492,7 @@ unsigned short unicodetolower(unsigned short c, int langnum) {
   return ToLowerCase((char16_t)c);
 #else
 #ifdef _WINDOWS
-  return towupper(c);
+  return towlower(c);
 #else
   return (utf_tbl) ? utf_tbl[c].clower : c;
 #endif
