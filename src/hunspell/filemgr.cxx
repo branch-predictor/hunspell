@@ -100,9 +100,10 @@ FileMgr::FileMgr(const char* file, const char* key, hunspell::LineIterator* iter
                 : linenum(0), iterator_(iterator) {
   if (!iterator && file) {
     myopen(fin, file, std::ios_base::in);
+    fin.rdbuf()->pubsetbuf(&line_[0], BUFSIZE);
     if (!fin.is_open()) {
       fail(MSG_OPEN, file);
-    }
+    } 
   }
 }
 
