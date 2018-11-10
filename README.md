@@ -1,6 +1,10 @@
 # About this Hunspell fork
 
-I'm not entirely happy with Hunspell, and seeing the direction original developers took, I decided to fix any issues I can spot and keep them here for future reference and for others to use.
+I'm not entirely happy with Hunspell, and seeing the direction original developers took, I decided to fix any issues I can spot and keep them here for future reference and for others to use. I also cross-port or implement functionality I need. 
+
+New functionality include:
+ - BDIC (binary dictionary) support. These are used by Google products (or derived from them) and offer much lower memory (both disk and RAM) consumption and load much faster.
+ 
 Fixes so far include:
 
  - reduced storage consumption by 116KB and RAM consumption by 320KB by using towupper/towlower/iswalpha instead of using static tables for unicode character case info.
