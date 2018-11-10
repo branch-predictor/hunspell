@@ -157,13 +157,10 @@ AffixMgr::AffixMgr(const char* affpath,
   sfx = NULL;
   pfx = NULL;
 
-  // todo: memset
-  for (int i = 0; i < SETSIZE; i++) {
-    pStart[i] = NULL;
-    sStart[i] = NULL;
-    pFlag[i] = NULL;
-    sFlag[i] = NULL;
-  }
+  memset((void*)&pStart, 0, sizeof(pStart));
+  memset((void*)&sStart, 0, sizeof(sStart));
+  memset((void*)&pFlag, 0, sizeof(pFlag));
+  memset((void*)&sFlag, 0, sizeof(sFlag));
 
   if (bdict_reader) {
     parse_file(nullptr, nullptr);
@@ -176,7 +173,6 @@ AffixMgr::AffixMgr(const char* affpath,
       HUNSPELL_WARNING(stderr, "Failure loading aff file %s\n", affpath);
     }
   }
-
 
   if (cpdmin == -1)
     cpdmin = MINCPDLEN;
