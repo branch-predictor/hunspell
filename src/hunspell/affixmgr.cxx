@@ -165,10 +165,6 @@ AffixMgr::AffixMgr(const char* affpath,
   if (bdict_reader) {
     parse_file(nullptr, nullptr);
   } else {
-    for (int j = 0; j < CONTSIZE; j++) {
-      contclasses[j] = 0;
-    }
-
     if (parse_file(affpath, key)) {
       HUNSPELL_WARNING(stderr, "Failure loading aff file %s\n", affpath);
     }
@@ -4688,7 +4684,8 @@ bool AffixMgr::parse_affix(const std::string& line,
             } else {
               entry->contclasslen = (unsigned short)pHMgr->decode_flags(
                   &(entry->contclass), dash_str.c_str(), af);
-              std::sort(entry->contclass, entry->contclass + entry->contclasslen);
+              if (entry->contclasslen > 1)
+                std::sort(entry->contclass, entry->contclass + entry->contclasslen);
             }
 
             havecontclass = 1;

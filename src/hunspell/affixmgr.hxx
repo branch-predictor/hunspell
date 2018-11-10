@@ -101,7 +101,8 @@ public:
     EnsureSizeIs(256);
   }
   char& operator[](size_t index) {
-    EnsureSizeIs(index + 1);
+    if (data.size() <= index)
+      EnsureSizeIs(index + 1);
     return data[index];
   }
   void EnsureSizeIs(size_t new_size) {
@@ -195,9 +196,8 @@ class AffixMgr {
   int fullstrip;
 
   int havecontclass;           // boolean variable
-  char contclasses[CONTSIZE];  // flags of possible continuing classes (twofold
-                               // affix)
-  ContClasses bdict_contclasses;
+  ContClasses contclasses;  // flags of possible continuing classes (twofold
+                            // affix)
 
  public:
    AffixMgr(const char* affpath, const std::vector<HashMgr*>& ptr, const char* key = NULL, hunspell::BDictReader* reader = NULL);
