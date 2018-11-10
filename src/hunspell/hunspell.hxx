@@ -76,6 +76,8 @@
 #include <string>
 #include <vector>
 
+#include "..\google\bdict_reader.h"
+
 #define SPELL_XML "<?xml?>"
 
 #define MAXSUGGESTION 15
@@ -112,7 +114,7 @@ class LIBHUNSPELL_DLL_CLASS_EXPORTED Hunspell {
    * long path names (without the long path prefix Hunspell will use fopen()
    * with system-dependent character encoding instead of _wfopen()).
    */
-  Hunspell(const char* affpath, const char* dpath, const char* key = NULL);
+   Hunspell(const char* affpath, const char* dpath, const char* key = NULL, const unsigned char* bdict_data = NULL, size_t bdict_length = 0);
   ~Hunspell();
 
   /* load extra dictionaries (only dic files) */

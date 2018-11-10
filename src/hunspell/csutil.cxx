@@ -89,7 +89,7 @@
 #include <unicode/uchar.h>
 #else
 #ifndef MOZILLA_CLIENT
-#ifndef _WINDOWS
+#ifndef _WINDOWS_UTF
 #include "utf_info.hxx"
 #define UTF_LST_LEN (sizeof(utf_lst) / (sizeof(unicode_info)))
 #endif
@@ -110,7 +110,7 @@ struct unicode_info2 {
   unsigned short clower;
 };
 
-#ifndef _WINDOWS
+#ifndef _WINDOWS_UTF
 static struct unicode_info2* utf_tbl = NULL;
 static int utf_tbl_count =
     0;  // utf_tbl can be used by multiple Hunspell instances
@@ -2426,7 +2426,7 @@ int get_lang_num(const std::string& lang) {
 
 #ifndef OPENOFFICEORG
 #ifndef MOZILLA_CLIENT
-#ifndef _WINDOWS
+#ifndef _WINDOWS_UTF
 void initialize_utf_tbl() {
   utf_tbl_count++;
   if (utf_tbl)
@@ -2447,7 +2447,7 @@ void initialize_utf_tbl() {
 #endif
 #endif
 
-#ifndef _WINDOWS
+#ifndef _WINDOWS_UTF
 void free_utf_tbl() {
   if (utf_tbl_count > 0)
     utf_tbl_count--;

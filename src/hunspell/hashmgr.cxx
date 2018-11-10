@@ -82,8 +82,9 @@
 
 // build a hash table from a munched word list
 
-HashMgr::HashMgr(const char* tpath, const char* apath, const char* key)
-    : tablesize(0),
+HashMgr::HashMgr(const char* tpath, const char* apath, const char* key, hunspell::BDictReader* reader)
+    : bdict_reader(reader),
+      tablesize(0),
       tableptr(NULL),
       flag_mode(FLAG_CHAR),
       complexprefixes(0),
@@ -97,8 +98,15 @@ HashMgr::HashMgr(const char* tpath, const char* apath, const char* key)
       aliasm(NULL) {
   langnum = 0;
   csconv = 0;
-  load_config(apath, key);
-  int ec = load_tables(tpath, key);
+  int ec = 0;
+  if (reader) {
+    // No tables to load, just the AF lines.
+    load_config(NULL, NULL);
+    ec = LoadAFLines();
+  } else {
+    load_config(apath, key);
+    ec = load_tables(tpath, key);
+  }
   if (ec) {
     /* error condition - what should we do here */
     HUNSPELL_WARNING(stderr, "Hash Manager Error : %d\n", ec);
@@ -122,7 +130,7 @@ HashMgr::~HashMgr() {
       while (pt) {
         nt = pt->next;
         if (pt->astr &&
-            (!aliasf || TESTAFF(pt->astr, ONLYUPCASEFLAG, pt->alen)))
+          (!aliasf || TESTAFF(pt->astr, ONLYUPCASEFLAG, pt->alen)))
           free(pt->astr);
         free(pt);
         pt = nt;
@@ -151,32 +159,73 @@ HashMgr::~HashMgr() {
 
 #ifndef OPENOFFICEORG
 #ifndef MOZILLA_CLIENT
-#ifndef _WINDOWS
+#ifndef _WINDOWS_UTF
   if (utf8)
     free_utf_tbl();
 #endif
 #endif
 #endif
 
+  if (bdict_reader) {
+    EmptyHentryCache();
+    for (std::vector<std::string*>::iterator it = pointer_to_strings_.begin();
+      it != pointer_to_strings_.end(); ++it) {
+      delete *it;
+    }
+  }
+
 #ifdef MOZILLA_CLIENT
   delete[] csconv;
 #endif
 }
 
+void HashMgr::EmptyHentryCache() {
+  // We need to delete each cache entry, and each additional one in the linked
+  // list of homonyms.
+  for (HEntryCache::iterator i = hentry_cache.begin();
+    i != hentry_cache.end(); ++i) {
+    hentry* cur = i->second;
+    while (cur) {
+      hentry* next = cur->next_homonym;
+      DeleteHashEntry(cur);
+      cur = next;
+    }
+  }
+  hentry_cache.clear();
+}
+
 // lookup a root word in the hashtable
 
 struct hentry* HashMgr::lookup(const char* word) const {
-  struct hentry* dp;
-  if (tableptr) {
-    dp = tableptr[hash(word)];
-    if (!dp)
-      return NULL;
-    for (; dp != NULL; dp = dp->next) {
-      if (strcmp(word, dp->word) == 0)
-        return dp;
+  if (bdict_reader) {
+    int affix_ids[hunspell::BDict::MAX_AFFIXES_PER_WORD];
+    int affix_count = bdict_reader->FindWord(word, affix_ids);
+    if (affix_count == 0) { // look for custom added word
+      std::map<std::string, int>::const_iterator iter =
+        custom_word_to_affix_id_map_.find(word);
+      if (iter != custom_word_to_affix_id_map_.end()) {
+        affix_count = 1;
+        affix_ids[0] = iter->second;
+      }
     }
+    static const int kMaxWordLen = 128;
+    static char word_buf[kMaxWordLen];
+    // To take account of null-termination, we use upto 127.
+    strncpy(word_buf, word, kMaxWordLen - 1);
+    return AffixIDsToHentry(word_buf, affix_ids, affix_count);
+  } else {
+    struct hentry* dp;
+    if (tableptr) {
+      dp = tableptr[hash(word)];
+      if (!dp)
+        return NULL;
+      for (; dp != NULL; dp = dp->next) {
+        if (strcmp(word, dp->word) == 0)
+          return dp;
+      }
+    }
+    return NULL;
   }
-  return NULL;
 }
 
 // add a word to the hash table (private)
@@ -187,6 +236,18 @@ int HashMgr::add_word(const std::string& in_word,
                       const std::string* in_desc,
                       bool onlyupcase,
                       int captype) {
+  if (bdict_reader) {
+    std::map<std::string, int>::iterator iter =
+      custom_word_to_affix_id_map_.find(in_word);
+    if (iter == custom_word_to_affix_id_map_.end()) {  // word needs to be added
+      std::string* new_string_word = new std::string(in_word);
+      pointer_to_strings_.push_back(new_string_word);
+      std::string sp(*(new_string_word));
+      custom_word_to_affix_id_map_[sp] = 0; // no affixes for custom words
+      return 1;
+    }
+  }
+  
   const std::string* word = &in_word;
   const std::string* desc = in_desc;
 
@@ -482,22 +543,29 @@ int HashMgr::get_clen_and_captype(const std::string& word, int* captype) {
 
 // remove word (personal dictionary function for standalone applications)
 int HashMgr::remove(const std::string& word) {
-  struct hentry* dp = lookup(word.c_str());
-  while (dp) {
-    if (dp->alen == 0 || !TESTAFF(dp->astr, forbiddenword, dp->alen)) {
-      unsigned short* flags =
+  if (bdict_reader) {
+    std::map<std::string, int>::iterator iter =
+      custom_word_to_affix_id_map_.find(word);
+    if (iter != custom_word_to_affix_id_map_.end())
+      custom_word_to_affix_id_map_.erase(iter);
+  } else {
+    struct hentry* dp = lookup(word.c_str());
+    while (dp) {
+      if (dp->alen == 0 || !TESTAFF(dp->astr, forbiddenword, dp->alen)) {
+        unsigned short* flags =
           (unsigned short*)malloc(sizeof(unsigned short) * (dp->alen + 1));
-      if (!flags)
-        return 1;
-      for (int i = 0; i < dp->alen; i++)
-        flags[i] = dp->astr[i];
-      flags[dp->alen] = forbiddenword;
-      free(dp->astr);
-      dp->astr = flags;
-      dp->alen++;
-      std::sort(flags, flags + dp->alen);
+        if (!flags)
+          return 1;
+        for (int i = 0; i < dp->alen; i++)
+          flags[i] = dp->astr[i];
+        flags[dp->alen] = forbiddenword;
+        free(dp->astr);
+        dp->astr = flags;
+        dp->alen++;
+        std::sort(flags, flags + dp->alen);
+      }
+      dp = dp->next_homonym;
     }
-    dp = dp->next_homonym;
   }
   return 0;
 }
@@ -557,19 +625,56 @@ int HashMgr::add_with_affix(const std::string& word, const std::string& example)
 // walk the hash table entry by entry - null at end
 // initialize: col=-1; hp = NULL; hp = walk_hashtable(&col, hp);
 struct hentry* HashMgr::walk_hashtable(int& col, struct hentry* hp) const {
-  if (hp && hp->next != NULL)
-    return hp->next;
-  for (col++; col < tablesize; col++) {
-    if (tableptr[col])
-      return tableptr[col];
+  if (bdict_reader) {
+    // Return NULL if dictionary is not valid.
+    if (!bdict_reader->IsValid())
+      return NULL;
+    // This function is only ever called by one place and not nested. We can
+    // therefore keep static state between calls and use |col| as a "reset" flag
+    // to avoid changing the API. It is set to -1 for the first call.
+    // Allocate the iterator on the heap to prevent an exit time destructor.
+    static hunspell::WordIterator& word_iterator =
+      *new hunspell::WordIterator(bdict_reader->GetAllWordIterator());
+    if (col < 0) {
+      col = 1;
+      word_iterator = bdict_reader->GetAllWordIterator();
+    }
+    int affix_ids[hunspell::BDict::MAX_AFFIXES_PER_WORD];
+    static const int kMaxWordLen = 128;
+    static char word[kMaxWordLen];
+    int affix_count = word_iterator.Advance(word, kMaxWordLen, affix_ids);
+    if (affix_count == 0)
+      return NULL;
+    short word_len = static_cast<short>(strlen(word));
+    // Since hunspell 1.2.8, an hentry struct becomes a variable-length struct,
+    // i.e. a struct which uses its array 'word[1]' as a variable-length array.
+    // As noted above, this function is not nested. So, we just use a static
+    // struct which consists of an hentry and a char[kMaxWordLen], and initialize
+    // the static struct and return it for now.
+    // No need to create linked lists for the extra affixes.
+    static struct {
+      hentry entry;
+      char word[kMaxWordLen];
+    } hash_entry;
+    return InitHashEntry(&hash_entry.entry, sizeof(hash_entry),
+      &word[0], word_len, affix_ids[0]);
+  } else {
+    if (hp && hp->next != NULL)
+      return hp->next;
+    for (col++; col < tablesize; col++) {
+      if (tableptr[col])
+        return tableptr[col];
+    }
+    // null at end and reset to start
+    col = -1;
+    return NULL;
   }
-  // null at end and reset to start
-  col = -1;
-  return NULL;
 }
 
 // load a munched word list and build a hash table on the fly
 int HashMgr::load_tables(const char* tpath, const char* key) {
+  if (!tpath && !key)
+    return 1;
   // open dictionary file
   FileMgr* dict = new FileMgr(tpath, key);
   if (dict == NULL)
@@ -706,6 +811,8 @@ int HashMgr::load_tables(const char* tpath, const char* key) {
 // the hash function is a simple load and rotate
 // algorithm borrowed
 int HashMgr::hash(const char* word) const {
+  if (bdict_reader)
+    return 0;
   unsigned long hv = 0;
   for (int i = 0; i < 4 && *word != 0; i++)
     hv = (hv << 8) | (*word++);
@@ -920,15 +1027,23 @@ char* HashMgr::encode_flag(unsigned short f) const {
 
 // read in aff file and set flag mode
 int HashMgr::load_config(const char* affpath, const char* key) {
-  int firstline = 1;
-
   // open the affix file
-  FileMgr* afflst = new FileMgr(affpath, key);
-  if (!afflst) {
-    HUNSPELL_WARNING(
-        stderr, "Error - could not open affix description file %s\n", affpath);
-    return 1;
+  if (bdict_reader) {
+    hunspell::LineIterator iterator = bdict_reader->GetOtherLineIterator();
+    FileMgr * afflst = new FileMgr(nullptr, nullptr, &iterator);
+    return load_config_internal(afflst);
+  } else {
+    FileMgr *afflst = new FileMgr(affpath, key);
+    if (!afflst) {
+      HUNSPELL_WARNING(stderr, "Error - could not open affix description file %s\n", affpath);
+      return 1;
+    }
+    return load_config_internal(afflst);
   }
+}
+
+int HashMgr::load_config_internal(FileMgr* afflst) {
+  int firstline = 1;
 
   // read in each line ignoring any that do not
   // start with a known line type indicator
@@ -949,9 +1064,9 @@ int HashMgr::load_config(const char* affpath, const char* key) {
     if ((line.compare(0, 4, "FLAG", 4) == 0) && line.size() > 4 && isspace(line[4])) {
       if (flag_mode != FLAG_CHAR) {
         HUNSPELL_WARNING(stderr,
-                         "error: line %d: multiple definitions of the FLAG "
-                         "affix file parameter\n",
-                         afflst->getlinenum());
+          "error: line %d: multiple definitions of the FLAG "
+          "affix file parameter\n",
+          afflst->getlinenum());
       }
       if (line.find("long") != std::string::npos)
         flag_mode = FLAG_LONG;
@@ -961,9 +1076,9 @@ int HashMgr::load_config(const char* affpath, const char* key) {
         flag_mode = FLAG_UNI;
       if (flag_mode == FLAG_CHAR) {
         HUNSPELL_WARNING(
-            stderr,
-            "error: line %d: FLAG needs `num', `long' or `UTF-8' parameter\n",
-            afflst->getlinenum());
+          stderr,
+          "error: line %d: FLAG needs `num', `long' or `UTF-8' parameter\n",
+          afflst->getlinenum());
       }
     }
 
@@ -985,8 +1100,8 @@ int HashMgr::load_config(const char* affpath, const char* key) {
         utf8 = 1;
 #ifndef OPENOFFICEORG
 #ifndef MOZILLA_CLIENT
-#ifndef _WINDOWS
-		initialize_utf_tbl();
+#ifndef _WINDOWS_UTF
+        initialize_utf_tbl();
 #endif
 #endif
 #endif
@@ -1003,10 +1118,10 @@ int HashMgr::load_config(const char* affpath, const char* key) {
     }
 
     /* parse in the ignored characters (for example, Arabic optional diacritics
-     * characters */
+    * characters */
     if (line.compare(0, 6, "IGNORE", 6) == 0) {
       if (!parse_array(line, ignorechars, ignorechars_utf16,
-                       utf8, afflst->getlinenum())) {
+        utf8, afflst->getlinenum())) {
         delete afflst;
         return 1;
       }
@@ -1039,9 +1154,9 @@ int HashMgr::load_config(const char* affpath, const char* key) {
 
     // don't check the full affix file, yet
     if (((line.compare(0, 3, "SFX", 3) == 0) ||
-         (line.compare(0, 3, "PFX", 3) == 0)) &&
-            line.size() > 3 && isspace(line[3]) &&
-            !reptable.empty()) // (REP table is in the end of Afrikaans aff file)
+      (line.compare(0, 3, "PFX", 3) == 0)) &&
+      line.size() > 3 && isspace(line[3]) &&
+      !reptable.empty()) // (REP table is in the end of Afrikaans aff file)
       break;
   }
 
@@ -1163,6 +1278,105 @@ bool HashMgr::parse_aliasf(const std::string& line, FileMgr* af) {
     }
   }
   return true;
+}
+
+int HashMgr::LoadAFLines()
+{
+  utf8 = 1;  // We always use UTF-8.
+  // Read in all the AF lines which tell us the rules for each affix group ID.
+  hunspell::LineIterator iterator = bdict_reader->GetAfLineIterator();
+  FileMgr afflst(nullptr, nullptr, &iterator);
+  std::string line;
+  while (afflst.getline(line)) {
+    int rv = parse_aliasf(line, &afflst);
+    if (rv)
+      return rv;
+  }
+  return 0;
+}
+hentry* HashMgr::InitHashEntry(hentry* entry,
+  size_t item_size,
+  const char* word,
+  int word_length,
+  int affix_index) const {
+  // Return if the given buffer doesn't have enough space for a hentry struct
+  // or the given word is too long.
+  // Our BDICT cannot handle words longer than (128 - 1) bytes. So, it is
+  // better to return an error if the given word is too long and prevent
+  // an unexpected result caused by a long word.
+  const int kMaxWordLen = 128;
+  if (item_size < sizeof(hentry) + word_length + 1 ||
+    word_length >= kMaxWordLen)
+    return NULL;
+  // Initialize a hentry struct with the given parameters, and
+  // append the given string at the end of this hentry struct.
+  memset(entry, 0, item_size);
+  FileMgr af(nullptr, nullptr, nullptr);
+  entry->alen = static_cast<short>(
+    const_cast<HashMgr*>(this)->get_aliasf(affix_index, &entry->astr, &af));
+  entry->blen = static_cast<unsigned char>(word_length);
+  memcpy(&entry->word, word, word_length);
+  return entry;
+}
+hentry* HashMgr::CreateHashEntry(const char* word,
+  int word_length,
+  int affix_index) const {
+  // Return if the given word is too long.
+  // (See the comment in HashMgr::InitHashEntry().)
+  const int kMaxWordLen = 128;
+  if (word_length >= kMaxWordLen)
+    return NULL;
+  const size_t kEntrySize = sizeof(hentry) + word_length + 1;
+  struct hentry* entry = reinterpret_cast<hentry*>(malloc(kEntrySize));
+  if (entry)
+    InitHashEntry(entry, kEntrySize, word, word_length, affix_index);
+  return entry;
+}
+void HashMgr::DeleteHashEntry(hentry* entry) const {
+  free(entry);
+}
+hentry* HashMgr::AffixIDsToHentry(char* word,
+  int* affix_ids,
+  int affix_count) const
+{
+  if (affix_count == 0)
+    return NULL;
+  HEntryCache& cache = const_cast<HashMgr*>(this)->hentry_cache;
+  std::string std_word(word);
+  HEntryCache::iterator found = cache.find(std_word);
+  if (found != cache.end()) {
+    // We must return an existing hentry for the same word if we've previously
+    // handed one out. Hunspell will compare pointers in some cases to see if
+    // two words it has found are the same.
+    return found->second;
+  }
+  short word_len = static_cast<short>(strlen(word));
+  // We can get a number of prefixes per word. There will normally be only one,
+  // but if not, there will be a linked list of "hentry"s for the "homonym"s 
+  // for the word.
+  struct hentry* first_he = NULL;
+  struct hentry* prev_he = NULL;  // For making linked list.
+  for (int i = 0; i < affix_count; i++) {
+    struct hentry* he = CreateHashEntry(word, word_len, affix_ids[i]);
+    if (!he)
+      break;
+    if (i == 0)
+      first_he = he;
+    if (prev_he)
+      prev_he->next_homonym = he;
+    prev_he = he;
+  }
+  cache[std_word] = first_he;  // Save this word in the cache for later.
+  return first_he;
+}
+hentry* HashMgr::GetHentryFromHEntryCache(char* word) {
+  HEntryCache& cache = const_cast<HashMgr*>(this)->hentry_cache;
+  std::string std_word(word);
+  HEntryCache::iterator found = cache.find(std_word);
+  if (found != cache.end())
+    return found->second;
+  else
+    return NULL;
 }
 
 int HashMgr::is_aliasf() const {

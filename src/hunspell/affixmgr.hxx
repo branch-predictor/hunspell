@@ -89,6 +89,31 @@
 class PfxEntry;
 class SfxEntry;
 
+#include <vector>
+// This class provides an implementation of the contclasses array in AffixMgr
+// that is normally a large static array. We should almost never need more than
+// 256 elements, so this class only allocates that much to start off with. If
+// elements higher than that are actually used, we'll automatically expand.
+class ContClasses {
+public:
+  ContClasses() {
+    // Pre-allocate a buffer so that typically, we'll never have to resize.
+    EnsureSizeIs(256);
+  }
+  char& operator[](size_t index) {
+    EnsureSizeIs(index + 1);
+    return data[index];
+  }
+  void EnsureSizeIs(size_t new_size) {
+    if (data.size() >= new_size)
+      return;  // Nothing to do.
+    size_t old_size = data.size();
+    data.resize(new_size);
+    memset(&data[old_size], 0, new_size - old_size);
+  }
+  std::vector<char> data;
+};
+
 class AffixMgr {
   PfxEntry* pStart[SETSIZE];
   SfxEntry* sStart[SETSIZE];
@@ -172,9 +197,10 @@ class AffixMgr {
   int havecontclass;           // boolean variable
   char contclasses[CONTSIZE];  // flags of possible continuing classes (twofold
                                // affix)
+  ContClasses bdict_contclasses;
 
  public:
-  AffixMgr(const char* affpath, const std::vector<HashMgr*>& ptr, const char* key = NULL);
+   AffixMgr(const char* affpath, const std::vector<HashMgr*>& ptr, const char* key = NULL, hunspell::BDictReader* reader = NULL);
   ~AffixMgr();
   struct hentry* affix_check(const char* word,
                              int len,
@@ -334,6 +360,7 @@ class AffixMgr {
   int get_fullstrip() const;
 
  private:
+  hunspell::BDictReader* bdict_reader;
   int parse_file(const char* affpath, const char* key);
   bool parse_flag(const std::string& line, unsigned short* out, FileMgr* af);
   bool parse_num(const std::string& line, int* out, FileMgr* af);

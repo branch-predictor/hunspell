@@ -181,7 +181,7 @@ struct cs_info {
   unsigned char cupper;
 };
 
-#ifndef _WINDOWS
+#ifndef _WINDOWS_UTF
 LIBHUNSPELL_DLL_FUNC_EXPORTED void initialize_utf_tbl();
 LIBHUNSPELL_DLL_FUNC_EXPORTED void free_utf_tbl();
 #endif
