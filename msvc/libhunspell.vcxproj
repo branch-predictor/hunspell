@@ -367,6 +367,8 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="..\src\google\bdict.h" />
+    <ClInclude Include="..\src\google\bdict_reader.h" />
     <ClInclude Include="..\src\hunspell\affentry.hxx" />
     <ClInclude Include="..\src\hunspell\affixmgr.hxx" />
     <ClInclude Include="..\src\hunspell\atypes.hxx" />
@@ -389,6 +391,8 @@
     <ResourceCompile Include="Hunspell.rc" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\src\google\bdict.cc" />
+    <ClCompile Include="..\src\google\bdict_reader.cc" />
     <ClCompile Include="..\src\hunspell\affentry.cxx" />
     <ClCompile Include="..\src\hunspell\affixmgr.cxx" />
     <ClCompile Include="..\src\hunspell\csutil.cxx" />
