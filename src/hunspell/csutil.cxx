@@ -2470,7 +2470,7 @@ unsigned short unicodetoupper(unsigned short c, int langnum) {
 #ifdef MOZILLA_CLIENT
   return ToUpperCase((char16_t)c);
 #else
-#ifdef _WINDOWS
+#ifdef _WINDOWS_UTF
   return towupper(c);
 #else
   return (utf_tbl) ? utf_tbl[c].cupper : c;
@@ -2491,7 +2491,7 @@ unsigned short unicodetolower(unsigned short c, int langnum) {
 #ifdef MOZILLA_CLIENT
   return ToLowerCase((char16_t)c);
 #else
-#ifdef _WINDOWS
+#ifdef _WINDOWS_UTF
   return towlower(c);
 #else
   return (utf_tbl) ? utf_tbl[c].clower : c;
@@ -2504,7 +2504,7 @@ int unicodeisalpha(unsigned short c) {
 #ifdef OPENOFFICEORG
   return u_isalpha(c);
 #else
-#ifdef _WINDOWS
+#ifdef _WINDOWS_UTF
   return iswalpha(c);
 #else
   return (utf_tbl) ? utf_tbl[c].cletter : 0;
