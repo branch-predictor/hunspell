@@ -146,8 +146,10 @@ class BDictReader {
 
   const BDict::AffHeader* aff_header_;
 
+#if _MSC_VER > 1500
   BDictReader(const BDictReader&) = delete;
   BDictReader& operator=(const BDictReader&) = delete;
+#endif
 };
 
 }  // namespace hunspell
