@@ -2012,6 +2012,7 @@ int HunspellImpl::stem(char*** slst, const char* word) {
 
 int HunspellImpl::stem(char*** slst, char** desc, int n) {
   std::vector<std::string> morph;
+  morph.reserve(n);
   for (int i = 0; i < n; ++i)
     morph.push_back(desc[i]);
 
@@ -2026,6 +2027,7 @@ int HunspellImpl::generate(char*** slst, const char* word, const char* pattern) 
 
 int HunspellImpl::generate(char*** slst, const char* word, char** pl, int pln) {
   std::vector<std::string> morph;
+  morph.reserve(pln);
   for (int i = 0; i < pln; ++i)
     morph.push_back(pl[i]);
 
